@@ -12,6 +12,7 @@ _EARLY_ALERT_CACHE: set[str] = set()
 _TELEGRAM_CONFIG_WARNED: bool = False
 _LAST_TELEGRAM_SENT_AT: float = time.time()
 _LAST_SCAN_SUMMARY_AT: float = 0.0
+_SCANS_COMPLETED: int = 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,6 +28,11 @@ def parse_args() -> argparse.Namespace:
         "--once",
         action="store_true",
         help="Run exactly one scan cycle and exit.",
+    )
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help="Run scan cycle forever (single process). Sleep SCAN_SECONDS between cycles. Ctrl+C for graceful shutdown. Keeps cache warm.",
     )
     parser.add_argument(
         "--cooldown-minutes",
@@ -493,8 +499,11 @@ def run_scan_cycle(
     early_min_conf: float,
     early_require_15m_context: bool,
     early_max_alerts_per_symbol_per_15m: int,
+    telegram_early_enabled: bool,
+    telegram_early_max_per_symbol_per_15m: int,
     threshold_profile: str,
     telegram_format: str,
+    telegram_compact: bool,
     telegram_max_chars_compact: int,
     telegram_max_chars_verbose: int,
 ) -> Dict[str, Any]:
@@ -503,14 +512,25 @@ def run_scan_cycle(
     from paper_engine import try_open_position
     from risk_autopilot import SignalIntent
     from risk import evaluate_intent
-    from signals import evaluate_early_intents_from_5m, evaluate_symbol_intents
+    from signals import (
+        evaluate_early_intents_from_5m,
+        evaluate_symbol_intents,
+        evaluate_symbol_intents_v1,
+        evaluate_symbol_intents_v2_trend_pullback,
+    )
+    from strategies.strategy_v3_tcb import v3_tcb_evaluate
     from storage import (
         append_signal,
         load_paper_state,
         save_paper_state,
+        set_defer_position_sync,
         set_last_block_reason,
+        set_last_bias_json,
+        set_near_misses,
+        set_symbols_v3,
         store_trade_intent,
         store_risk_event,
+        sync_paper_positions_from_state,
     )
     from telegram_format import (
         format_early_alert,
@@ -526,10 +546,17 @@ def run_scan_cycle(
         "watchlist_mode": watchlist_mode,
         "watchlist": list(watchlist),
         "symbols": [],
+        "symbols_v3": {},
         "mtf_snapshots": {},
     }
+    v3_params_dict = {
+        "DONCHIAN_N_15M": getattr(_config, "DONCHIAN_N_15M", 20),
+        "BODY_ATR_15M": getattr(_config, "BODY_ATR_15M", 0.25),
+        "TREND_SEP_ATR_1H": getattr(_config, "TREND_SEP_ATR_1H", 0.8),
+        "USE_5M_CONFIRM": getattr(_config, "USE_5M_CONFIRM", True),
+    }
     format_caps = {
-        "telegram_format": telegram_format,
+        "telegram_format": "compact" if telegram_compact else telegram_format,
         "telegram_max_chars_compact": int(telegram_max_chars_compact),
         "telegram_max_chars_verbose": int(telegram_max_chars_verbose),
     }
@@ -543,10 +570,19 @@ def run_scan_cycle(
     ]
     symbols_to_process = list(dict.fromkeys(list(watchlist) + open_position_symbols))
 
-    from mtf import build_mtf_snapshot, log_mtf_ready
+    import config as _config
+    from mtf import build_mtf_snapshot, compute_4h_bias, log_mtf_ready
 
     snapshot_by_symbol: Dict[str, Dict[int, Dict[str, Any]]] = {}
+    strategy_v1 = bool(getattr(_config, "STRATEGY_V1", False))
+    v2_trend_pullback = bool(getattr(_config, "V2_TREND_PULLBACK", True))
+    v3_trend_breakout = bool(getattr(_config, "V3_TREND_BREAKOUT", False))
+    tf_bias = int(getattr(_config, "TF_BIAS", 240))
+    bias_list: List[Dict[str, Any]] = []
+    has_any_allow = False
+    all_near_miss_candidates: List[Dict[str, Any]] = []
 
+    set_defer_position_sync(True)
     for symbol in symbols_to_process:
         symbol_context: Dict[str, Any] = {
             "symbol": symbol,
@@ -559,12 +595,17 @@ def run_scan_cycle(
             "error": None,
         }
         try:
-            snap = build_mtf_snapshot(symbol)
-            snapshot_by_symbol[symbol] = snap
-            symbol_context["mtf_snapshot"] = snap
-            run_context["mtf_snapshots"][symbol] = snap
-            if snap:
-                log_mtf_ready(symbol, snap, logger=logging.getLogger(__name__))
+            snap_result = build_mtf_snapshot(symbol)
+            mtf_snap = snap_result[0] if isinstance(snap_result, tuple) else snap_result
+            snapshot_by_symbol[symbol] = mtf_snap
+            symbol_context["mtf_snapshot"] = mtf_snap
+            run_context["mtf_snapshots"][symbol] = mtf_snap
+            if mtf_snap:
+                log_mtf_ready(symbol, mtf_snap, logger=logging.getLogger(__name__))
+
+            snap_4h = (mtf_snap or {}).get(tf_bias, {}) or {}
+            bias_info = compute_4h_bias(symbol, snap_4h)
+            bias_list.append(dict(bias_info))
 
             # DRY RUN only: public market data endpoint.
             candles = fetch_klines(symbol=symbol, interval=interval, limit=lookback)
@@ -582,12 +623,19 @@ def run_scan_cycle(
                         position = PaperPosition.from_dict(pos_raw)
                     except Exception:
                         continue
-                    updated, closed, pnl_usdt, close_reason = update_and_maybe_close(
+                    updated, closed, pnl_usdt, close_reason, partial_trade = update_and_maybe_close(
                         position=position,
                         last_candle=latest_candle,
                         fees_bps=getattr(risk_autopilot, "paper_fees_bps", 6.0),
                         timeout_bars=getattr(risk_autopilot, "paper_timeout_bars", 12),
                     )
+                    if partial_trade:
+                        risk_autopilot.record_paper_close(float(partial_trade.get("pnl_usdt", 0) or 0))
+                        closed_trades.append(partial_trade)
+                        position = updated
+                        # Update open_positions with reduced qty
+                        updated_open_positions.append(updated.to_dict())
+                        continue
                     if closed:
                         risk_autopilot.record_paper_close(pnl_usdt)
                         store_risk_event(
@@ -662,13 +710,94 @@ def run_scan_cycle(
 
             if symbol in watchlist_set:
                 active_profile = str(threshold_profile or "A").strip().upper()
-                evaluated = evaluate_symbol_intents(
-                    symbol=symbol,
-                    candles=candles,
-                    signal_debug=signal_debug,
-                    early_min_conf=early_min_conf,
-                    threshold_profile=active_profile,
-                )
+                if v3_trend_breakout and (bias_info.get("bias") or "NONE") in ("LONG", "SHORT"):
+                    if symbol not in klines_5m_cache:
+                        klines_5m_cache[symbol] = fetch_klines(
+                            symbol=symbol,
+                            interval=str(getattr(_config, "TF_TIMING", 5)),
+                            limit=int(getattr(_config, "LOOKBACK_5M", 400)),
+                        ) or []
+                    i15 = len(candles) - 1 if candles else 0
+                    result = v3_tcb_evaluate(
+                        symbol=symbol,
+                        snapshot_symbol=mtf_snap or {},
+                        candles_15m=candles or [],
+                        candles_5m=klines_5m_cache.get(symbol) or [],
+                        i15=i15,
+                        params=v3_params_dict,
+                    )
+                    run_context["symbols_v3"][symbol] = {
+                        "v3": {
+                            "ok": result.get("ok", False),
+                            "side": result.get("side"),
+                            "reason": result.get("reason", ""),
+                            "breakout_level": result.get("breakout_level"),
+                        },
+                    }
+                    if result.get("ok"):
+                        cur = (candles or [])[i15] if i15 < len(candles or []) else {}
+                        low_15m = float(cur.get("low", 0) or 0)
+                        high_15m = float(cur.get("high", 0) or 0)
+                        atr15m = float(result.get("debug", {}).get("atr15m", 0) or 0)
+                        sl_atr_mult = float(getattr(_config, "PULLBACK_SL_ATR_MULT", 0.60))
+                        tp_r = float(getattr(_config, "PAPER_TP_ATR", 1.5))
+                        sl_price = (
+                            low_15m - sl_atr_mult * atr15m
+                            if result.get("side") == "LONG"
+                            else high_15m + sl_atr_mult * atr15m
+                        )
+                        intent = {
+                            "symbol": symbol,
+                            "side": result.get("side"),
+                            "strategy": "V3_TREND_BREAKOUT",
+                            "close": result.get("debug", {}).get("close_15m"),
+                            "level_ref": result.get("breakout_level"),
+                            "entry_type": "market_sim",
+                            "meta": {
+                                "sl_hint": sl_price,
+                                "tp_r_mult": tp_r,
+                                "atr14": atr15m,
+                            },
+                        }
+                        evaluated = {
+                            "final_intents": [intent],
+                            "market_snapshot": {"atr14": atr15m},
+                        }
+                    else:
+                        evaluated = {
+                            "final_intents": [],
+                            "market_snapshot": {},
+                            "skip_reason": result.get("reason", ""),
+                        }
+                elif v2_trend_pullback and (bias_info.get("bias") or "NONE") in ("LONG", "SHORT"):
+                    snap_15m = (mtf_snap or {}).get(15, {}) or {}
+                    bar_ts_v2 = str(snap_15m.get("ts", "") or (candles[-2].get("timestamp_utc", "") if len(candles) >= 2 else ""))
+                    evaluated = evaluate_symbol_intents_v2_trend_pullback(
+                        symbol=symbol,
+                        candles_15m=candles,
+                        mtf_snapshot=mtf_snap or {},
+                        bias_info=bias_info,
+                        bar_ts_used=bar_ts_v2,
+                    )
+                elif strategy_v1 and (bias_info.get("bias") or "NONE") in ("LONG", "SHORT"):
+                    evaluated = evaluate_symbol_intents_v1(
+                        symbol=symbol,
+                        candles_15m=candles,
+                        mtf_snapshot=mtf_snap or {},
+                        bias_info=bias_info,
+                        signal_debug=signal_debug,
+                        timeframe=str(interval),
+                    )
+                    for nm in evaluated.get("near_miss_candidates", []) or []:
+                        all_near_miss_candidates.append(dict(nm))
+                else:
+                    evaluated = evaluate_symbol_intents(
+                        symbol=symbol,
+                        candles=candles,
+                        signal_debug=signal_debug,
+                        early_min_conf=early_min_conf,
+                        threshold_profile=active_profile,
+                    )
                 symbol_context["market_snapshot"] = dict(evaluated.get("market_snapshot", {}) or {})
                 symbol_context["candidates_before"] = list(
                     evaluated.get("candidates_before", []) or []
@@ -739,6 +868,8 @@ def run_scan_cycle(
                         symbol_context["early_intents"] = list(early_intents)
 
                         for early_signal in symbol_context["early_intents"]:
+                            if not telegram_early_enabled:
+                                continue
                             bar_ts_15m = str(
                                 early_signal.get(
                                     "bar_ts_15m",
@@ -769,7 +900,7 @@ def run_scan_cycle(
                                 early_key=early_key,
                                 symbol=str(early_signal.get("symbol", symbol)),
                                 bar_ts_15m=bar_ts_15m,
-                                max_alerts=early_max_alerts_per_symbol_per_15m,
+                                max_alerts=telegram_early_max_per_symbol_per_15m,
                             ):
                                 continue
                             _remember_early_alert(
@@ -778,10 +909,10 @@ def run_scan_cycle(
                                 symbol=str(early_signal.get("symbol", symbol)),
                                 bar_ts_15m=bar_ts_15m,
                                 bar_ts_5m=bar_ts_5m,
-                                max_alerts=early_max_alerts_per_symbol_per_15m,
+                                max_alerts=telegram_early_max_per_symbol_per_15m,
                             )
                             save_paper_state(early_state)
-                            if telegram_token and telegram_chat_id:
+                            if telegram_early_enabled and telegram_token and telegram_chat_id:
                                 _send_telegram_with_logging(
                                     kind="intent",
                                     token=telegram_token,
@@ -873,7 +1004,7 @@ def run_scan_cycle(
                                 "risk": {"allowed": False, "reason": gate_reason},
                             }
                         )
-                        logging.warning(
+                        logging.debug(
                             "Risk gate blocked intent (%s | %s | bar_ts_used=%s): %s",
                             intent.symbol,
                             intent.strategy,
@@ -897,24 +1028,13 @@ def run_scan_cycle(
                             "block_reason": gate_reason,
                         }
                         store_trade_intent(dup_trade_intent)
-                        logging.info(
+                        logging.debug(
                             "INTENT %s %s %s verdict=%s reason=%s",
                             str(dup_trade_intent.get("symbol", "")),
                             str(dup_trade_intent.get("setup", "")),
                             str(dup_trade_intent.get("direction", "")),
                             str(dup_trade_intent.get("risk_verdict", "")),
                             str(dup_trade_intent.get("block_reason", "")),
-                        )
-                        store_risk_event(
-                            {
-                                "ts": intent.ts,
-                                "type": "INTENT_GATE",
-                                "status": "TRIGGERED",
-                                "reason": gate_reason,
-                                "symbol": intent.symbol,
-                                "setup": intent.strategy,
-                                "direction": intent.side,
-                            }
                         )
                         continue
 
@@ -1005,9 +1125,10 @@ def run_scan_cycle(
                     )
                     save_paper_state(dedup_state)
                     if allowed:
+                        has_any_allow = True
                         risk_autopilot.record_allowed_intent(intent)
                         snap = symbol_context.get("market_snapshot", {}) or {}
-                        pos_dict = try_open_position(
+                        pos_dict, skip_reason = try_open_position(
                             trade_intent,
                             candles,
                             snap,
@@ -1189,6 +1310,9 @@ def run_scan_cycle(
                                         else None
                                     ),
                                     "bar_ts_used": bar_ts_used,
+                                    "bias": str(signal.get("bias", "") or ""),
+                                    "break_level": signal.get("break_level"),
+                                    "retest_level": signal.get("retest_level"),
                                     "open_now": len(
                                         load_paper_state().get(
                                             "open_positions", []
@@ -1237,7 +1361,14 @@ def run_scan_cycle(
                             gate_reason,
                         )
                         set_last_block_reason(gate_reason)
-                        should_notify_block = bool(notify_blocked_telegram or always_notify_intents)
+                        _skip_block_telegram = (
+                            gate_reason == "DUPLICATE_INTENT"
+                            or "cooldown" in str(gate_reason or "").lower()
+                        )
+                        should_notify_block = bool(
+                            (notify_blocked_telegram or always_notify_intents)
+                            and not _skip_block_telegram
+                        )
                         if should_notify_block and telegram_token and telegram_chat_id:
                             state_now = load_paper_state()
                             blocked_msg = format_intent_block(
@@ -1296,6 +1427,18 @@ def run_scan_cycle(
                 str(debug_none.get("FB_FADE", "n/a")),
             )
             logged += 1
+    set_last_bias_json(bias_list)
+    if strategy_v1 and not has_any_allow:
+        sorted_near = sorted(
+            [n for n in all_near_miss_candidates if float(n.get("dist_atr", 0) or 0) > 0],
+            key=lambda x: float(x.get("dist_atr", 0) or 0),
+        )
+        set_near_misses(sorted_near[:3])
+    else:
+        set_near_misses([])
+    set_defer_position_sync(False)
+    sync_paper_positions_from_state()
+    set_symbols_v3(run_context.get("symbols_v3") or {})
     return run_context
 
 
@@ -1406,6 +1549,7 @@ def _emit_scan_summary_and_heartbeat(
     config_module,
     telegram_token: str,
     telegram_chat_id: str,
+    run_mode: str = "loop",
 ) -> None:
     """
     Send scan summary or heartbeat per TELEGRAM_POLICY.
@@ -1413,8 +1557,10 @@ def _emit_scan_summary_and_heartbeat(
     - periodic: scan_summary at most once per SCAN_SUMMARY_MINUTES (only when NOTIFY_SCAN_SUMMARY and not DISABLE_SCAN_SUMMARY)
     - off: no scan_summary, no heartbeat
     Scan summary requires ALL: TELEGRAM_POLICY==periodic, NOTIFY_SCAN_SUMMARY, DISABLE_SCAN_SUMMARY==False.
+    Heartbeat: not sent on startup (requires at least 2 completed scans), includes run_mode, watchlist count, last_scan_ts.
     """
-    global _LAST_TELEGRAM_SENT_AT, _LAST_SCAN_SUMMARY_AT
+    global _LAST_TELEGRAM_SENT_AT, _LAST_SCAN_SUMMARY_AT, _SCANS_COMPLETED
+    _SCANS_COMPLETED += 1
     if not telegram_token or not telegram_chat_id:
         return
     policy = str(getattr(config_module, "TELEGRAM_POLICY", "events") or "events").strip().lower()
@@ -1461,13 +1607,19 @@ def _emit_scan_summary_and_heartbeat(
         policy in ("events", "periodic")
         and heartbeat_min > 0
         and idle_sec >= threshold_sec
+        and _SCANS_COMPLETED >= 2
     )
     if not may_send_heartbeat and policy in ("events", "periodic") and heartbeat_min > 0:
-        logging.info("HEARTBEAT_SKIP elapsed=%.0f threshold=%.0f", idle_sec, threshold_sec)
+        logging.info(
+            "HEARTBEAT_SKIP elapsed=%.0f threshold=%.0f scans=%d",
+            idle_sec,
+            threshold_sec,
+            _SCANS_COMPLETED,
+        )
     if may_send_heartbeat:
         from storage import get_last_scan_ts
 
-        last_scan = get_last_scan_ts() or 0
+        last_scan_ts = get_last_scan_ts() or 0
         watchlist = run_context.get("watchlist", []) or []
         last_error = ""
         for sym_ctx in (run_context.get("symbols", []) or []):
@@ -1475,7 +1627,18 @@ def _emit_scan_summary_and_heartbeat(
             if err:
                 last_error = err[:80]
                 break
-        msg = f"HEARTBEAT ok | last_scan={last_scan} | watchlist={len(watchlist)}"
+        try:
+            from datetime import datetime, timezone
+            last_scan_human = (
+                datetime.fromtimestamp(int(last_scan_ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                if last_scan_ts else "-"
+            )
+        except (TypeError, ValueError, OSError):
+            last_scan_human = "-"
+        msg = (
+            f"HEARTBEAT ok | mode={run_mode} | watchlist={len(watchlist)} | "
+            f"last_scan={last_scan_human}"
+        )
         if last_error:
             msg += f" | last_error={last_error}"
         _send_telegram_with_logging(
@@ -1493,6 +1656,7 @@ def emit_dashboard(
     telegram_token: str,
     telegram_chat_id: str,
     max_open_positions: int,
+    run_mode: str = "loop",
 ) -> None:
     from dashboard import build_dashboard_report
     from storage import load_paper_state
@@ -1528,6 +1692,7 @@ def emit_dashboard(
         config_module=config_module,
         telegram_token=telegram_token,
         telegram_chat_id=telegram_chat_id,
+        run_mode=run_mode,
     )
 
 
@@ -1581,8 +1746,13 @@ def _run_one_scan_iteration(*, config_module, risk_autopilot, dryrun_notify_alwa
         early_max_alerts_per_symbol_per_15m=int(
             getattr(config_module, "EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M", 1)
         ),
+        telegram_early_enabled=bool(getattr(config_module, "TELEGRAM_EARLY_ENABLED", False)),
+        telegram_early_max_per_symbol_per_15m=int(
+            getattr(config_module, "TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M", 1)
+        ),
         threshold_profile=str(getattr(config_module, "THRESHOLD_PROFILE", "A")),
         telegram_format=str(getattr(config_module, "TELEGRAM_FORMAT", "compact")),
+        telegram_compact=bool(getattr(config_module, "TELEGRAM_COMPACT", True)),
         telegram_max_chars_compact=int(getattr(config_module, "TELEGRAM_MAX_CHARS_COMPACT", 900)),
         telegram_max_chars_verbose=int(getattr(config_module, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
     )
@@ -1600,6 +1770,7 @@ def _run_one_scan_iteration(*, config_module, risk_autopilot, dryrun_notify_alwa
         telegram_token=config_module.TELEGRAM_BOT_TOKEN,
         telegram_chat_id=config_module.TELEGRAM_CHAT_ID,
         max_open_positions=config_module.MAX_OPEN_POSITIONS,
+        run_mode="loop",
     )
 
 
@@ -1827,6 +1998,7 @@ def main() -> int:
                 telegram_token=config.TELEGRAM_BOT_TOKEN,
                 telegram_chat_id=config.TELEGRAM_CHAT_ID,
                 max_open_positions=config.MAX_OPEN_POSITIONS,
+                run_mode="once",
             )
             logging.info("Completed FORCE_TEST run. Exiting --once mode.")
             return 0
@@ -1857,8 +2029,13 @@ def main() -> int:
             early_max_alerts_per_symbol_per_15m=int(
                 getattr(config, "EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M", 1)
             ),
+            telegram_early_enabled=bool(getattr(config, "TELEGRAM_EARLY_ENABLED", False)),
+            telegram_early_max_per_symbol_per_15m=int(
+                getattr(config, "TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M", 1)
+            ),
             threshold_profile=str(getattr(config, "THRESHOLD_PROFILE", "A")),
             telegram_format=str(getattr(config, "TELEGRAM_FORMAT", "compact")),
+            telegram_compact=bool(getattr(config, "TELEGRAM_COMPACT", True)),
             telegram_max_chars_compact=int(getattr(config, "TELEGRAM_MAX_CHARS_COMPACT", 900)),
             telegram_max_chars_verbose=int(getattr(config, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
         )
@@ -1873,6 +2050,7 @@ def main() -> int:
             telegram_token=config.TELEGRAM_BOT_TOKEN,
             telegram_chat_id=config.TELEGRAM_CHAT_ID,
             max_open_positions=config.MAX_OPEN_POSITIONS,
+            run_mode="once",
         )
         logging.info("Completed one scan cycle. Exiting --once mode.")
         return 0
@@ -1882,60 +2060,75 @@ def main() -> int:
 
     from storage import set_last_scan_error, set_last_scan_ts, set_selected_watchlist, set_stall_alerted
 
-    while True:
-        _check_stall_and_alert(
-            config_module=config,
-            telegram_token=config.TELEGRAM_BOT_TOKEN,
-            telegram_chat_id=config.TELEGRAM_CHAT_ID,
-        )
-        watchlist, watchlist_mode = resolve_watchlist(config)
-        if not watchlist:
-            logging.error("Resolved watchlist is empty. Retrying on next cycle.")
-            time.sleep(config.SCAN_SECONDS)
-            continue
-        try:
-            run_context = run_scan_cycle(
-                watchlist=watchlist,
-                watchlist_mode=watchlist_mode,
-                interval=config.INTERVAL,
-                lookback=config.LOOKBACK,
-                telegram_token=config.TELEGRAM_BOT_TOKEN,
-                telegram_chat_id=config.TELEGRAM_CHAT_ID,
-                risk_autopilot=risk_autopilot,
-                notify_blocked_telegram=bool(
-                    getattr(config, "NOTIFY_BLOCKED", False)
-                    or getattr(config, "TELEGRAM_SEND_BLOCKED", False)
-                    or getattr(config, "RISK_NOTIFY_BLOCKED_TELEGRAM", False)
-                ),
-                always_notify_intents=bool(args.dryrun_notify_always or getattr(config, "ALWAYS_NOTIFY_INTENTS", False)),
-                signal_debug=config.SIGNAL_DEBUG,
-                early_enabled=bool(getattr(config, "EARLY_ENABLED", False)),
-                early_tf=str(getattr(config, "EARLY_TF", 5)),
-                early_lookback_5m=int(getattr(config, "EARLY_LOOKBACK_5M", 60)),
-                early_min_conf=float(getattr(config, "EARLY_MIN_CONF", 0.35)),
-                early_require_15m_context=bool(getattr(config, "EARLY_REQUIRE_15M_CONTEXT", True)),
-                early_max_alerts_per_symbol_per_15m=int(
-                    getattr(config, "EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M", 1)
-                ),
-                threshold_profile=str(getattr(config, "THRESHOLD_PROFILE", "A")),
-                telegram_format=str(getattr(config, "TELEGRAM_FORMAT", "compact")),
-                telegram_max_chars_compact=int(getattr(config, "TELEGRAM_MAX_CHARS_COMPACT", 900)),
-                telegram_max_chars_verbose=int(getattr(config, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
-            )
-            set_last_scan_ts(int(time.time()))
-            set_stall_alerted(False)
-            set_selected_watchlist(list(run_context.get("watchlist", []) or []), str(run_context.get("watchlist_mode", "static") or "static"))
-            emit_dashboard(
-                run_context,
+    scan_seconds = max(1, int(config.SCAN_SECONDS))
+    logging.info(
+        "Starting --loop mode (single process, scan every %ds). Ctrl+C to stop. Cache stays warm.",
+        scan_seconds,
+    )
+    try:
+        while True:
+            _check_stall_and_alert(
                 config_module=config,
                 telegram_token=config.TELEGRAM_BOT_TOKEN,
                 telegram_chat_id=config.TELEGRAM_CHAT_ID,
-                max_open_positions=config.MAX_OPEN_POSITIONS,
             )
-        except Exception as exc:
-            set_last_scan_error(str(exc))
-            logging.exception("Scan iteration crashed: %s", exc)
-        time.sleep(config.SCAN_SECONDS)
+            watchlist, watchlist_mode = resolve_watchlist(config)
+            if not watchlist:
+                logging.error("Resolved watchlist is empty. Retrying on next cycle.")
+                time.sleep(scan_seconds)
+                continue
+            try:
+                run_context = run_scan_cycle(
+                    watchlist=watchlist,
+                    watchlist_mode=watchlist_mode,
+                    interval=config.INTERVAL,
+                    lookback=config.LOOKBACK,
+                    telegram_token=config.TELEGRAM_BOT_TOKEN,
+                    telegram_chat_id=config.TELEGRAM_CHAT_ID,
+                    risk_autopilot=risk_autopilot,
+                    notify_blocked_telegram=bool(
+                        getattr(config, "NOTIFY_BLOCKED", False)
+                        or getattr(config, "TELEGRAM_SEND_BLOCKED", False)
+                        or getattr(config, "RISK_NOTIFY_BLOCKED_TELEGRAM", False)
+                    ),
+                    always_notify_intents=bool(args.dryrun_notify_always or getattr(config, "ALWAYS_NOTIFY_INTENTS", False)),
+                    signal_debug=config.SIGNAL_DEBUG,
+                    early_enabled=bool(getattr(config, "EARLY_ENABLED", False)),
+                    early_tf=str(getattr(config, "EARLY_TF", 5)),
+                    early_lookback_5m=int(getattr(config, "EARLY_LOOKBACK_5M", 60)),
+                    early_min_conf=float(getattr(config, "EARLY_MIN_CONF", 0.35)),
+                    early_require_15m_context=bool(getattr(config, "EARLY_REQUIRE_15M_CONTEXT", True)),
+                    early_max_alerts_per_symbol_per_15m=int(
+                        getattr(config, "EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M", 1)
+                    ),
+                    telegram_early_enabled=bool(getattr(config, "TELEGRAM_EARLY_ENABLED", False)),
+                    telegram_early_max_per_symbol_per_15m=int(
+                        getattr(config, "TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M", 1)
+                    ),
+                    threshold_profile=str(getattr(config, "THRESHOLD_PROFILE", "A")),
+                    telegram_format=str(getattr(config, "TELEGRAM_FORMAT", "compact")),
+                    telegram_compact=bool(getattr(config, "TELEGRAM_COMPACT", True)),
+                    telegram_max_chars_compact=int(getattr(config, "TELEGRAM_MAX_CHARS_COMPACT", 900)),
+                    telegram_max_chars_verbose=int(getattr(config, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
+                )
+                set_last_scan_ts(int(time.time()))
+                set_stall_alerted(False)
+                set_selected_watchlist(list(run_context.get("watchlist", []) or []), str(run_context.get("watchlist_mode", "static") or "static"))
+                emit_dashboard(
+                    run_context,
+                    config_module=config,
+                    telegram_token=config.TELEGRAM_BOT_TOKEN,
+                    telegram_chat_id=config.TELEGRAM_CHAT_ID,
+                    max_open_positions=config.MAX_OPEN_POSITIONS,
+                    run_mode="loop",
+                )
+            except Exception as exc:
+                set_last_scan_error(str(exc))
+                logging.exception("Scan iteration crashed: %s", exc)
+            time.sleep(scan_seconds)
+    except KeyboardInterrupt:
+        logging.info("Ctrl+C received, shutting down gracefully.")
+    return 0
 
 
 if __name__ == "__main__":

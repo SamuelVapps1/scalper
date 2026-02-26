@@ -294,6 +294,27 @@ def store_trade_intent(intent: Dict[str, Any]) -> None:
 
 
 
+def get_block_stats_last_24h() -> List[Dict[str, Any]]:
+    """Aggregate trade_intents where status=BLOCK over last 24h. Returns [{block_reason, count}] sorted by count desc."""
+    _ensure_db()
+    since_ts = int(time.time()) - 24 * 60 * 60
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT block_reason, COUNT(*) AS cnt
+            FROM trade_intents
+            WHERE status = 'BLOCK' AND ts >= ?
+            GROUP BY block_reason
+            ORDER BY cnt DESC
+            """,
+            (since_ts,),
+        ).fetchall()
+    return [
+        {"block_reason": str(row["block_reason"] or "").strip() or "(empty)", "count": int(row["cnt"])}
+        for row in rows
+    ]
+
+
 def get_recent_trade_intents(limit: int = 50) -> List[Dict[str, Any]]:
     _ensure_db()
     max_rows = max(1, int(limit))
@@ -470,12 +491,6 @@ def sync_positions_and_fills(open_positions: List[Dict[str, Any]], closed_trades
         "sync_positions(closed)",
     )
     positions_upserted = len(open_list) + len(closed_list)
-    generated = sum(
-        1
-        for p in open_list + closed_list
-        if not str(p.get("intent_id") or p.get("id") or "").strip()
-    )
-    logging.info("positions_upserted=%d positions_generated_ids=%d", positions_upserted, generated)
 
     with _DB_LOCK:
         with _connect() as conn:

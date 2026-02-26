@@ -185,6 +185,8 @@ def get_watchlist(
         pool = candidates[:pool_n]
         scored: List[Tuple[str, float, float, float]] = []
         from bybit import fetch_klines
+        from bybit import RateLimitedError as BybitRateLimitedError
+        downgraded = False
         for symbol, turnover, vol_pct in pool:
             abs_return = 0.0
             try:
@@ -195,11 +197,24 @@ def get_watchlist(
                     cl = float(c.get("close", 0) or 0)
                     if o > 0:
                         abs_return = abs((cl - o) / o) * 100.0
+            except BybitRateLimitedError:
+                if not downgraded:
+                    log.info("WATCHLIST momentum_1h rate-limited; downgrading to turnover_vol")
+                    downgraded = True
+                rank_mode = "turnover_vol"
+                break
             except Exception:
                 pass
             scored.append((symbol, turnover, vol_pct, abs_return))
-        scored.sort(key=lambda x: (x[3], x[1]), reverse=True)
-        result = [s for s, _, _, _ in scored[:top_n]]
+        if rank_mode == "momentum_1h" and scored:
+            scored.sort(key=lambda x: (x[3], x[1]), reverse=True)
+            result = [s for s, _, _, _ in scored[:top_n]]
+        elif rank_mode == "turnover_vol":
+            candidates.sort(key=lambda x: (x[1], x[2]), reverse=True)
+            result = [s for s, _, _ in candidates[:top_n]]
+        else:
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            result = [s for s, _, _ in candidates[:top_n]]
     else:
         candidates.sort(key=lambda x: (x[1], x[2]), reverse=True)
         result = [s for s, _, _ in candidates[:top_n]]

@@ -44,3 +44,26 @@ def atr_wilder(
         atr_value = ((atr_value * (period - 1)) + tr[idx]) / period
         out[idx] = atr_value
     return out
+
+
+def rsi_wilder(close: List[float], period: int = 14) -> List[Optional[float]]:
+    """RSI14 with Wilder smoothing (alpha=1/period). First value at index period."""
+    n = len(close)
+    out: List[Optional[float]] = [None] * n
+    if n <= period:
+        return out
+    gains: List[float] = [0.0] * n
+    losses: List[float] = [0.0] * n
+    for idx in range(1, n):
+        delta = close[idx] - close[idx - 1]
+        gains[idx] = delta if delta > 0 else 0.0
+        losses[idx] = -delta if delta < 0 else 0.0
+    avg_gain = sum(gains[1 : period + 1]) / period
+    avg_loss = sum(losses[1 : period + 1]) / period
+    out[period] = 100.0 - (100.0 / (1.0 + (avg_gain / max(avg_loss, 1e-10))))
+    for idx in range(period + 1, n):
+        avg_gain = (avg_gain * (period - 1) + gains[idx]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[idx]) / period
+        rs = avg_gain / max(avg_loss, 1e-10)
+        out[idx] = 100.0 - (100.0 / (1.0 + rs))
+    return out

@@ -10,13 +10,18 @@ from fastapi.responses import HTMLResponse
 
 import config
 from storage import (
+    compute_paper_kpis,
+    get_block_stats_last_24h,
+    get_last_bias_json,
     get_last_block_reason,
     get_last_scan_ts,
+    get_near_misses,
     get_recent_risk_events,
     get_recent_signals,
     get_recent_trade_intents,
     get_selected_watchlist,
     get_signals_since,
+    get_symbols_v3,
     get_watchlist_transparency,
     load_paper_state,
 )
@@ -120,6 +125,14 @@ def _summary_payload() -> Dict[str, Any]:
         "wins_today": wins_today,
         "losses_today": losses_today,
         "open_positions": open_positions_rows,
+        "bias": (get_last_bias_json() or [])[:10],
+        "symbols": get_symbols_v3(),
+        "near_misses": get_near_misses(),
+        "block_stats": get_block_stats_last_24h(),
+        "kpi": compute_paper_kpis(
+            list(state.get("closed_trades", []) or []),
+            paper_equity_usdt=float(config.PAPER_EQUITY_USDT),
+        ),
     }
 
 
@@ -243,6 +256,74 @@ def _index_html() -> str:
     <tbody id="open_positions_table"></tbody>
   </table>
 
+  <h2>Near Misses (Strategy V1, Top 3)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>symbol</th>
+        <th>setup_hint</th>
+        <th>dist_atr</th>
+        <th>bias</th>
+      </tr>
+    </thead>
+    <tbody id="near_misses_table"></tbody>
+  </table>
+
+  <h2>4H Bias (Top 10)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>symbol</th>
+        <th>bias</th>
+        <th>slope10</th>
+        <th>dist_pct</th>
+        <th>reason</th>
+      </tr>
+    </thead>
+    <tbody id="bias_table"></tbody>
+  </table>
+
+  <h2>Paper KPIs</h2>
+  <div class="grid">
+    <div class="card"><div class="label">expectancy_R</div><div class="value" id="kpi_expectancy_R">-</div></div>
+    <div class="card"><div class="label">winrate</div><div class="value" id="kpi_winrate">-</div></div>
+    <div class="card"><div class="label">profit_factor</div><div class="value" id="kpi_profit_factor">-</div></div>
+    <div class="card"><div class="label">max_dd_usdt</div><div class="value" id="kpi_max_dd_usdt">-</div></div>
+    <div class="card"><div class="label">trades_total</div><div class="value" id="kpi_trades_total">-</div></div>
+    <div class="card"><div class="label">wins</div><div class="value" id="kpi_wins">-</div></div>
+    <div class="card"><div class="label">losses</div><div class="value" id="kpi_losses">-</div></div>
+    <div class="card"><div class="label">avg_win_R</div><div class="value" id="kpi_avg_win_R">-</div></div>
+    <div class="card"><div class="label">avg_loss_R</div><div class="value" id="kpi_avg_loss_R">-</div></div>
+  </div>
+  <h3>KPIs by Setup</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>setup</th>
+        <th>expectancy_R</th>
+        <th>avg_win_R</th>
+        <th>avg_loss_R</th>
+        <th>winrate</th>
+        <th>profit_factor</th>
+        <th>trades</th>
+        <th>wins</th>
+        <th>losses</th>
+      </tr>
+    </thead>
+    <tbody id="kpi_by_setup_table"></tbody>
+  </table>
+
+  <h2>Block Reasons (Last 24h)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>block_reason</th>
+        <th>count</th>
+      </tr>
+    </thead>
+    <tbody id="block_stats_table"></tbody>
+  </table>
+
   <h2>Risk</h2>
   <div class="grid">
     <div class="card"><div class="label">kill_switch</div><div class="value" id="kill_switch">-</div></div>
@@ -331,7 +412,101 @@ def _index_html() -> str:
       setText('position_mode', risk.position_mode);
       setText('max_concurrent_positions', risk.max_concurrent_positions);
       setText('risk_open_positions_count', risk.open_positions_count);
+      renderBiasTable(Array.isArray(data.bias) ? data.bias : []);
+      renderNearMissesTable(Array.isArray(data.near_misses) ? data.near_misses : []);
+      renderBlockStatsTable(Array.isArray(data.block_stats) ? data.block_stats : []);
       renderOpenPositions(Array.isArray(data.open_positions) ? data.open_positions : []);
+      renderKpi(data.kpi);
+    }
+
+    function renderKpi(kpiData) {
+      if (!kpiData || typeof kpiData !== 'object') return;
+      const kpi = kpiData.kpi || {};
+      const fmt = (v) => (v != null && v !== '' ? String(v) : '-');
+      const pct = (v) => (typeof v === 'number' ? (v * 100).toFixed(1) + '%' : fmt(v));
+      setText('kpi_expectancy_R', fmt(kpi.expectancy_R));
+      setText('kpi_winrate', pct(kpi.winrate));
+      setText('kpi_profit_factor', fmt(kpi.profit_factor));
+      setText('kpi_max_dd_usdt', fmt(kpi.max_dd_usdt));
+      setText('kpi_trades_total', fmt(kpi.trades_total));
+      setText('kpi_wins', fmt(kpi.wins));
+      setText('kpi_losses', fmt(kpi.losses));
+      setText('kpi_avg_win_R', fmt(kpi.avg_win_R));
+      setText('kpi_avg_loss_R', fmt(kpi.avg_loss_R));
+      const bySetup = kpiData.kpi_by_setup || {};
+      const tbody = document.getElementById('kpi_by_setup_table');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      for (const [setup, s] of Object.entries(bySetup)) {
+        const tr = document.createElement('tr');
+        const cols = [
+          setup,
+          s.expectancy_R != null ? s.expectancy_R : '-',
+          s.avg_win_R != null ? s.avg_win_R : '-',
+          s.avg_loss_R != null ? s.avg_loss_R : '-',
+          typeof s.winrate === 'number' ? (s.winrate * 100).toFixed(1) + '%' : '-',
+          s.profit_factor != null ? s.profit_factor : '-',
+          s.trades_total != null ? s.trades_total : '-',
+          s.wins != null ? s.wins : '-',
+          s.losses != null ? s.losses : '-'
+        ];
+        for (const v of cols) {
+          const td = document.createElement('td');
+          td.textContent = String(v ?? '-');
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+    }
+
+    function renderBlockStatsTable(items) {
+      const tbody = document.getElementById('block_stats_table');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      for (const item of items) {
+        const tr = document.createElement('tr');
+        const cols = [item.block_reason, item.count];
+        for (const v of cols) {
+          const td = document.createElement('td');
+          td.textContent = String(v ?? '-');
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+    }
+
+    function renderNearMissesTable(items) {
+      const tbody = document.getElementById('near_misses_table');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      for (const item of items) {
+        const tr = document.createElement('tr');
+        const cols = [item.symbol, item.setup_hint, item.dist_atr, item.bias];
+        for (const v of cols) {
+          const td = document.createElement('td');
+          td.textContent = String(v ?? '-');
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+    }
+
+    function renderBiasTable(items) {
+      const tbody = document.getElementById('bias_table');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      for (const item of items) {
+        const tr = document.createElement('tr');
+        const slope = item.slope10 != null ? Number(item.slope10).toFixed(6) : '-';
+        const dist = item.dist_pct != null ? Number(item.dist_pct).toFixed(2) + '%' : '-';
+        const cols = [item.symbol, item.bias, slope, dist, item.reason || '-'];
+        for (const v of cols) {
+          const td = document.createElement('td');
+          td.textContent = String(v ?? '-');
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
     }
 
     function renderOpenPositions(items) {
@@ -446,7 +621,7 @@ def _index_html() -> str:
     }
 
     refresh();
-    setInterval(refresh, 2000);
+    setInterval(refresh, 5 * 60 * 1000); // 5 min
   </script>
 </body>
 </html>

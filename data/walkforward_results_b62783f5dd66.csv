@@ -1,0 +1,10 @@
+window,test_end_days_ago,test_start_days_ago,run_id,trades_total,wins,losses,winrate,expectancy_R,profit_factor,avg_win_R,avg_loss_R,max_dd_usdt,top_skip_reason
+1,245,275,876025a153b1,5,1,4,0.2,-0.5002,0.3632,1.3354,-0.9591,3.41,v3_donchian_not_broken:5205
+2,215,245,a81f59b1b44b,109,91,18,0.8348623853211009,0.7284,12.6482,1.0351,-0.8223,20.54,v3_trend_align_fail:4535
+3,185,215,1437f558e7df,0,0,0,0,0,0,0,0,0,
+4,155,185,7c86758bc711,0,0,0,0,0,0,0,0,0,
+5,125,155,e335c6699796,0,0,0,0,0,0,0,0,0,
+6,95,125,eaf330fd3d9d,0,0,0,0,0,0,0,0,0,
+7,65,95,c97f094e21f4,0,0,0,0,0,0,0,0,0,
+8,35,65,2b508c60a0f9,0,0,0,0,0,0,0,0,0,
+9,5,35,572d60149122,0,0,0,0,0,0,0,0,0,v3_donchian_not_broken:2380

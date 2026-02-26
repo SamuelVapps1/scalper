@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import sqlite_store
+
+_defer_position_sync = threading.local()
+
+
+def set_defer_position_sync(defer: bool) -> None:
+    """When True, save_paper_state skips sync_positions_and_fills. Use to batch sync at end of scan cycle."""
+    _defer_position_sync.value = defer
+
+
+def _is_defer_position_sync() -> bool:
+    return bool(getattr(_defer_position_sync, "value", False))
 
 
 
@@ -123,10 +136,23 @@ def save_paper_state(state: Dict[str, Any]) -> None:
     sqlite_store.kv_set("counter.daily_pnl_sim", str(float(normalized.get("daily_pnl_sim", 0.0) or 0.0)))
     sqlite_store.kv_set("counter.consecutive_losses", str(int(normalized.get("consecutive_losses", 0) or 0)))
     sqlite_store.kv_set("counter.day_utc", str(normalized.get("day_utc", "")))
-    sqlite_store.sync_positions_and_fills(
-        open_positions=list(normalized.get("open_positions", []) or []),
-        closed_trades=list(normalized.get("closed_trades", []) or []),
-    )
+    if not _is_defer_position_sync():
+        sqlite_store.sync_positions_and_fills(
+            open_positions=list(normalized.get("open_positions", []) or []),
+            closed_trades=list(normalized.get("closed_trades", []) or []),
+        )
+
+
+def sync_paper_positions_from_state() -> None:
+    """Sync positions table from current paper state. Call once at end of scan cycle when defer was used."""
+    state = load_paper_state()
+    open_pos = list(state.get("open_positions", []) or [])
+    closed = list(state.get("closed_trades", []) or [])
+    sqlite_store.sync_positions_and_fills(open_positions=open_pos, closed_trades=closed)
+    n = len(open_pos) + len(closed)
+    if n > 0:
+        import logging
+        logging.info("positions_upserted=%d (end of cycle)", n)
 
 
 
@@ -157,6 +183,11 @@ def store_trade_intent(intent: Dict[str, Any]) -> None:
 
 def get_recent_trade_intents(limit: int = 50) -> List[Dict[str, Any]]:
     return sqlite_store.get_recent_trade_intents(limit=limit)
+
+
+def get_block_stats_last_24h() -> List[Dict[str, Any]]:
+    """Return block_reason counts for trade_intents with status=BLOCK over last 24h."""
+    return sqlite_store.get_block_stats_last_24h()
 
 
 
@@ -191,6 +222,140 @@ def add_closed_trade(closed_trade: Dict[str, Any]) -> None:
     save_paper_state(state)
 
 
+def _compute_r_for_trade(t: Dict[str, Any]) -> tuple[Optional[float], Optional[str]]:
+    """Compute r_multiple for a trade if possible. Returns (r_multiple, r_reason)."""
+    r = t.get("r_multiple")
+    if r is not None:
+        try:
+            return float(r), t.get("r_reason")
+        except (TypeError, ValueError):
+            pass
+    entry = float(t.get("entry_price", 0) or t.get("entry", 0) or 0)
+    sl = float(t.get("sl_price", 0) or t.get("sl", 0) or 0)
+    pnl = float(t.get("pnl_usdt", 0) or t.get("pnl", 0) or 0)
+    qty_est = t.get("qty_est")
+    notional = float(t.get("notional_usdt", 0) or t.get("notional", 0) or 0)
+    qty = (
+        float(qty_est)
+        if (qty_est is not None and float(qty_est or 0) > 0)
+        else (notional / max(entry, 1e-10) if entry > 0 else 0.0)
+    )
+    risk_usdt = abs(entry - sl) * max(0.0, qty)
+    if risk_usdt <= 0:
+        return None, "RISK_ZERO"
+    return pnl / risk_usdt, None
+
+
+def compute_paper_kpis(
+    closed_trades: List[Dict[str, Any]],
+    paper_equity_usdt: float = 200.0,
+) -> Dict[str, Any]:
+    """
+    Compute Paper KPIs from closed_trades.
+    Returns {kpi: {...}, kpi_by_setup: {setup_name: {...}}}.
+    """
+    trades = [t for t in (closed_trades or []) if isinstance(t, dict)]
+    wins = [t for t in trades if float(t.get("pnl_usdt", 0) or 0) > 0]
+    losses = [t for t in trades if float(t.get("pnl_usdt", 0) or 0) < 0]
+    r_values = []
+    for t in trades:
+        r, _ = _compute_r_for_trade(t)
+        if r is not None:
+            r_values.append(r)
+    win_rs = [r for r in r_values if r > 0]
+    avg_win_r = sum(win_rs) / len(win_rs) if win_rs else 0.0
+    loss_rs = [r for r in r_values if r < 0]
+    avg_loss_r = sum(loss_rs) / len(loss_rs) if loss_rs else 0.0
+    expectancy_r = sum(r_values) / len(r_values) if r_values else 0.0
+    sum_pos = sum(float(t.get("pnl_usdt", 0) or 0) for t in trades if float(t.get("pnl_usdt", 0) or 0) > 0)
+    sum_neg = sum(float(t.get("pnl_usdt", 0) or 0) for t in trades if float(t.get("pnl_usdt", 0) or 0) < 0)
+    profit_factor = sum_pos / abs(sum_neg) if sum_neg != 0 else (float("inf") if sum_pos > 0 else 0.0)
+    equity = float(paper_equity_usdt)
+    peak = equity
+    max_dd = 0.0
+    for t in sorted(trades, key=lambda x: str(x.get("close_ts", x.get("entry_ts", "")))):
+        pnl = float(t.get("pnl_usdt", 0) or 0)
+        equity += pnl
+        peak = max(peak, equity)
+        dd = peak - equity
+        if dd > max_dd:
+            max_dd = dd
+    kpi = {
+        "expectancy_R": round(expectancy_r, 4),
+        "winrate": len(wins) / len(trades) if trades else 0.0,
+        "profit_factor": round(profit_factor, 4) if profit_factor != float("inf") else 999.0,
+        "max_dd_usdt": round(max_dd, 2),
+        "trades_total": len(trades),
+        "wins": len(wins),
+        "losses": len(losses),
+        "avg_win_R": round(avg_win_r, 4),
+        "avg_loss_R": round(avg_loss_r, 4),
+    }
+    by_setup: Dict[str, Dict[str, Any]] = {}
+    for t in trades:
+        setup = str(t.get("setup", t.get("strategy", "")) or "").strip() or "unknown"
+        if setup not in by_setup:
+            by_setup[setup] = {"trades": [], "wins": 0, "losses": 0, "pnl_sum": 0.0, "r_values": []}
+        by_setup[setup]["trades"].append(t)
+        pnl = float(t.get("pnl_usdt", 0) or 0)
+        by_setup[setup]["pnl_sum"] += pnl
+        if pnl > 0:
+            by_setup[setup]["wins"] += 1
+        elif pnl < 0:
+            by_setup[setup]["losses"] += 1
+        r_val, _ = _compute_r_for_trade(t)
+        if r_val is not None:
+            by_setup[setup]["r_values"].append(r_val)
+    kpi_by_setup = {}
+    for setup, data in by_setup.items():
+        tr = data["trades"]
+        wr = data["wins"] / len(tr) if tr else 0.0
+        rv = data["r_values"]
+        exp_r = sum(rv) / len(rv) if rv else 0.0
+        win_rs_s = [r for r in rv if r > 0]
+        loss_rs_s = [r for r in rv if r < 0]
+        avg_win_r_s = sum(win_rs_s) / len(win_rs_s) if win_rs_s else 0.0
+        avg_loss_r_s = sum(loss_rs_s) / len(loss_rs_s) if loss_rs_s else 0.0
+        sp = sum(float(x.get("pnl_usdt", 0) or 0) for x in tr if float(x.get("pnl_usdt", 0) or 0) > 0)
+        sn = sum(float(x.get("pnl_usdt", 0) or 0) for x in tr if float(x.get("pnl_usdt", 0) or 0) < 0)
+        pf = sp / abs(sn) if sn != 0 else (999.0 if sp > 0 else 0.0)
+        eq_s = float(paper_equity_usdt)
+        peak_s = eq_s
+        max_dd_s = 0.0
+        for t in sorted(tr, key=lambda x: str(x.get("close_ts", x.get("entry_ts", "")))):
+            pnl = float(t.get("pnl_usdt", 0) or 0)
+            eq_s += pnl
+            peak_s = max(peak_s, eq_s)
+            dd = peak_s - eq_s
+            if dd > max_dd_s:
+                max_dd_s = dd
+        kpi_by_setup[setup] = {
+            "expectancy_R": round(exp_r, 4),
+            "winrate": round(wr, 4),
+            "profit_factor": round(pf, 4) if pf != 999.0 else 999.0,
+            "trades_total": len(tr),
+            "wins": data["wins"],
+            "losses": data["losses"],
+            "avg_win_R": round(avg_win_r_s, 4),
+            "avg_loss_R": round(avg_loss_r_s, 4),
+            "max_dd_usdt": round(max_dd_s, 2),
+        }
+    if os.getenv("KPI_DEBUG", "0") == "1" and trades:
+        import logging
+        sample = trades[-5:]
+        for t in sample:
+            r_val, r_reason = _compute_r_for_trade(t)
+            logging.info(
+                "KPI_DEBUG trade: setup=%s pnl_usdt=%s risk_usdt=%s R=%s r_reason=%s",
+                t.get("setup", t.get("strategy", "?")),
+                t.get("pnl_usdt"),
+                t.get("risk_usdt"),
+                r_val,
+                r_reason or t.get("r_reason"),
+            )
+    return {"kpi": kpi, "kpi_by_setup": kpi_by_setup}
+
+
 
 def get_last_scan_ts() -> Optional[int]:
     state = load_paper_state()
@@ -219,6 +384,23 @@ def set_last_block_reason(reason: str) -> None:
 def get_last_block_reason() -> str:
     state = load_paper_state()
     return str(state.get("last_block_reason", "-") or "-")
+
+
+def set_symbols_v3(symbols: Dict[str, Dict[str, Any]]) -> None:
+    """Persist per-symbol V3 status for dashboard. symbols[symbol][\"v3\"] = {ok, side, reason, breakout_level}."""
+    sqlite_store.kv_set("symbols_v3_json", json.dumps(dict(symbols or {}), ensure_ascii=True))
+
+
+def get_symbols_v3() -> Dict[str, Dict[str, Any]]:
+    """Return per-symbol state including v3 status for /api/summary."""
+    raw = sqlite_store.kv_get("symbols_v3_json")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
 
 
 def set_last_scan_error(msg: str) -> None:
@@ -326,3 +508,37 @@ def get_selected_watchlist() -> tuple:
         return symbols, mode
     except Exception:
         return [], "static"
+
+
+def set_last_bias_json(bias_list: List[Dict[str, Any]]) -> None:
+    """Persist per-scan bias map for dashboard. No secrets."""
+    sqlite_store.kv_set("last_bias_json", json.dumps(bias_list or [], ensure_ascii=True))
+
+
+def get_last_bias_json() -> List[Dict[str, Any]]:
+    """Return last bias list for /api/summary."""
+    raw = sqlite_store.kv_get("last_bias_json")
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        return list(parsed) if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
+def set_near_misses(near_misses: List[Dict[str, Any]]) -> None:
+    """Persist top near-miss candidates for dashboard. No secrets."""
+    sqlite_store.kv_set("near_misses_json", json.dumps(near_misses or [], ensure_ascii=True))
+
+
+def get_near_misses() -> List[Dict[str, Any]]:
+    """Return last near_misses for /api/summary."""
+    raw = sqlite_store.kv_get("near_misses_json")
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        return list(parsed) if isinstance(parsed, list) else []
+    except Exception:
+        return []

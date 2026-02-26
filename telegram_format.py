@@ -5,6 +5,8 @@ from typing import Any, Dict
 STRATEGY_HUMAN_NOTES = {
     "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE": "EMA200 fade after sweep (trap)",
     "RANGE_BREAKOUT_RETEST_GO": "Range breakout -> retest -> go",
+    "TREND_PULLBACK_EMA20": "V2 trend pullback to EMA20",
+    "EMA_PULLBACK_GO": "EMA pullback in trend (ema20/50)",
     "FORCE_TEST": "Synthetic stress-test intent",
 }
 
@@ -62,6 +64,7 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
     side = str(intent.get("side", "?"))
     strategy = _strategy_display(intent.get("strategy", "?"))
     conf = _fmt_float(intent.get("confidence", 0.0), 2)
+    bias = str(market_ctx.get("bias", "") or "").upper()
     entry = _fmt_float(market_ctx.get("entry"))
     sl = _fmt_float(market_ctx.get("sl"))
     tp = _fmt_float(market_ctx.get("tp"))
@@ -79,17 +82,25 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
     cooldown = _cooldown_text(market_ctx.get("cooldown_until_utc"))
     cooldown_state = _cooldown_on_off(market_ctx.get("cooldown_until_utc"))
     human_note = STRATEGY_HUMAN_NOTES.get(str(intent.get("strategy", "")), note or "n/a")
+    break_level = market_ctx.get("break_level")
+    retest_level = market_ctx.get("retest_level")
+    levels_str = ""
+    if break_level is not None or retest_level is not None:
+        break_s = _fmt_float(break_level) if break_level is not None else "n/a"
+        retest_s = _fmt_float(retest_level) if retest_level is not None else "n/a"
+        levels_str = f" break={break_s} retest={retest_s}"
 
     compact = [
         f"ALLOW[{tf}m] {symbol} {side} conf={conf}",
-        f"entry={entry} sl={sl} tp={tp}",
-        f"sl%={sl_pct} tp%={tp_pct}",
-        f"setup={human_note}",
+        f"setup={human_note} bias={bias or 'n/a'}{levels_str}",
+        f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct}",
+        f"bar_ts={bar_ts_used}",
         f"risk open={open_now}/{open_max} trades={trades_today} cooldown={cooldown_state}",
     ]
     verbose = [
         f"✅ CONFIRMED[{tf}m] ALLOW",
-        f"{symbol} {side} {strategy} conf={conf}",
+        f"{symbol} {side} {strategy} conf={conf} bias={bias or 'n/a'}",
+        f"break={_fmt_float(break_level) if break_level is not None else 'n/a'} retest={_fmt_float(retest_level) if retest_level is not None else 'n/a'}",
         f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct} qty={qty} notional={notional}",
         f"bar_ts_used={bar_ts_used} intent_id={intent_id}",
         f"setup_note={note}",

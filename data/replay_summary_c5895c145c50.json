@@ -1,0 +1,35 @@
+{
+  "run_id": "c5895c145c50",
+  "overall": {
+    "expectancy_R": 0.0,
+    "winrate": 0.0,
+    "profit_factor": 0.0,
+    "max_dd_usdt": 0.0,
+    "trades_total": 0,
+    "wins": 0,
+    "losses": 0,
+    "avg_win_R": 0.0,
+    "avg_loss_R": 0.0
+  },
+  "by_setup": {},
+  "exit_reason_counts": {},
+  "skip_reasons": {
+    "bias_none": 0,
+    "atr_filter_fail": 0,
+    "range_too_small": 0,
+    "breakout_not_triggered": 0,
+    "retest_not_filled": 0,
+    "bos_not_confirmed": 0,
+    "ema20_confirm_fail": 0,
+    "ema200_align_fail": 0,
+    "ema20_ema50_fail": 0,
+    "trend_weak": 0,
+    "momo_confirm_fail": 0,
+    "pullback_not_triggered": 0,
+    "no_active_setup": 0,
+    "score_below_min": 0,
+    "max_abs_dist_4h": 0,
+    "max_abs_dist_4h_hard": 0,
+    "rate_limited": 0
+  }
+}
