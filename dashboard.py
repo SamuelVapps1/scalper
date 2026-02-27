@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from storage import get_risk_metrics
+
 
 def _fmt_float(value: Any, digits: int = 4) -> str:
     try:
@@ -15,7 +17,7 @@ def build_dashboard_report(run_context: Dict[str, Any]) -> str:
     watchlist = run_context.get("watchlist", []) or []
     watchlist_mode = str(run_context.get("watchlist_mode", "static"))
     paper_state = run_context.get("paper_state", {}) or {}
-    risk_blob = paper_state.get("risk", {}) if isinstance(paper_state.get("risk"), dict) else {}
+    risk_metrics = get_risk_metrics(paper_state)
     symbols = run_context.get("symbols", []) or []
     include_snapshot = bool(run_context.get("include_market_snapshot", True))
     include_blocked = bool(run_context.get("include_blocked", True))
@@ -25,14 +27,10 @@ def build_dashboard_report(run_context: Dict[str, Any]) -> str:
     open_positions = paper_state.get("open_positions") or []
     open_count = len(open_positions) if isinstance(open_positions, list) else 0
     max_open = int(run_context.get("max_open_positions", 0))
-    trade_count_today = int(paper_state.get("trade_count_today", risk_blob.get("trade_count_today", 0)))
-    daily_pnl_sim = float(paper_state.get("daily_pnl_sim", risk_blob.get("daily_pnl_sim", 0.0)))
-    consecutive_losses = int(
-        paper_state.get("consecutive_losses", risk_blob.get("consecutive_losses", 0))
-    )
-    cooldown_until = str(
-        paper_state.get("cooldown_until_utc", risk_blob.get("cooldown_until_utc", "")) or ""
-    ).strip()
+    trade_count_today = int(risk_metrics.get("trade_count_today", 0) or 0)
+    daily_pnl_sim = float(risk_metrics.get("daily_pnl_sim", 0.0) or 0.0)
+    consecutive_losses = int(risk_metrics.get("consecutive_losses", 0) or 0)
+    cooldown_until = str(risk_metrics.get("cooldown_until_utc", "") or "").strip()
     cooldown_text = cooldown_until if cooldown_until else "OFF"
 
     lines: List[str] = []

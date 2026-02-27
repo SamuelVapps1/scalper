@@ -6,7 +6,9 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import sqlite_store
+from scalper.repositories import get_storage_repo
+
+sqlite_store = get_storage_repo()
 
 _defer_position_sync = threading.local()
 
@@ -22,11 +24,20 @@ def _is_defer_position_sync() -> bool:
 
 
 def _default_paper_state() -> Dict[str, Any]:
+    day_utc = datetime.now(timezone.utc).date().isoformat()
     return {
-        "day_utc": datetime.now(timezone.utc).date().isoformat(),
+        "day_utc": day_utc,
         "trade_count_today": 0,
+        "daily_pnl_realized": 0.0,
         "daily_pnl_sim": 0.0,
+        "equity_peak": 0.0,
         "consecutive_losses": 0,
+        "cooldown_until_ts": 0,
+        "pause_until_ts": 0,
+        "pause_reason": "",
+        "kill_reason": "",
+        "last_trade_ts": 0,
+        "last_trade_symbol_ts": {},
         "cooldown_until_utc": "",
         "open_positions": [],
         "closed_trades": [],
@@ -37,6 +48,19 @@ def _default_paper_state() -> Dict[str, Any]:
         "signal_hashes": [],
         "trade_intents": [],
         "risk_events": [],
+        "risk_metrics": {
+            "day_utc": day_utc,
+            "trade_count_today": 0,
+            "daily_pnl_realized": 0.0,
+            "daily_pnl_sim": 0.0,
+            "equity_peak": 0.0,
+            "consecutive_losses": 0,
+            "cooldown_until_ts": 0,
+            "pause_until_ts": 0,
+            "pause_reason": "",
+            "kill_reason": "",
+            "cooldown_until_utc": "",
+        },
     }
 
 
@@ -63,8 +87,22 @@ def _normalize_paper_state(raw_state: Dict[str, Any]) -> Dict[str, Any]:
     normalized.pop("state_date", None)
 
     normalized["trade_count_today"] = int(normalized.get("trade_count_today", 0) or 0)
+    normalized["daily_pnl_realized"] = float(normalized.get("daily_pnl_realized", 0.0) or 0.0)
     normalized["daily_pnl_sim"] = float(normalized.get("daily_pnl_sim", 0.0) or 0.0)
+    normalized["equity_peak"] = float(normalized.get("equity_peak", 0.0) or 0.0)
     normalized["consecutive_losses"] = int(normalized.get("consecutive_losses", 0) or 0)
+    normalized["cooldown_until_ts"] = int(normalized.get("cooldown_until_ts", 0) or 0)
+    normalized["pause_until_ts"] = int(normalized.get("pause_until_ts", 0) or 0)
+    normalized["pause_reason"] = str(normalized.get("pause_reason", "") or "")
+    normalized["kill_reason"] = str(normalized.get("kill_reason", "") or "")
+    normalized["last_trade_ts"] = int(normalized.get("last_trade_ts", 0) or 0)
+    last_trade_symbol_ts = normalized.get("last_trade_symbol_ts", {})
+    if isinstance(last_trade_symbol_ts, dict):
+        normalized["last_trade_symbol_ts"] = {
+            str(k).upper(): int(v or 0) for k, v in last_trade_symbol_ts.items() if str(k).strip()
+        }
+    else:
+        normalized["last_trade_symbol_ts"] = {}
     normalized["cooldown_until_utc"] = str(normalized.get("cooldown_until_utc", "") or "")
 
     open_positions = normalized.get("open_positions")
@@ -110,6 +148,19 @@ def _normalize_paper_state(raw_state: Dict[str, Any]) -> Dict[str, Any]:
         normalized["last_scan_ts"] = None
 
     normalized["last_block_reason"] = str(normalized.get("last_block_reason", "-") or "-")
+    normalized["risk_metrics"] = {
+        "day_utc": normalized["day_utc"],
+        "trade_count_today": normalized["trade_count_today"],
+        "daily_pnl_realized": normalized["daily_pnl_realized"],
+        "daily_pnl_sim": normalized["daily_pnl_sim"],
+        "equity_peak": normalized["equity_peak"],
+        "consecutive_losses": normalized["consecutive_losses"],
+        "cooldown_until_ts": normalized["cooldown_until_ts"],
+        "pause_until_ts": normalized["pause_until_ts"],
+        "pause_reason": normalized["pause_reason"],
+        "kill_reason": normalized["kill_reason"],
+        "cooldown_until_utc": normalized["cooldown_until_utc"],
+    }
     return normalized
 
 
@@ -179,6 +230,18 @@ def get_signals_since(ts: int) -> int:
 def store_trade_intent(intent: Dict[str, Any]) -> None:
     sqlite_store.store_trade_intent(intent)
 
+
+
+def upsert_paper_position(position: Dict[str, Any]) -> None:
+    sqlite_store.upsert_paper_position(position)
+
+
+def delete_paper_position(position_id: str) -> None:
+    sqlite_store.delete_paper_position(position_id)
+
+
+def insert_paper_trade(trade: Dict[str, Any]) -> None:
+    sqlite_store.insert_paper_trade(trade)
 
 
 def get_recent_trade_intents(limit: int = 50) -> List[Dict[str, Any]]:
@@ -364,6 +427,40 @@ def get_last_scan_ts() -> Optional[int]:
         return int(raw_ts) if raw_ts is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def get_risk_metrics(state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    src = _normalize_paper_state(state or load_paper_state())
+    risk_metrics = src.get("risk_metrics")
+    if isinstance(risk_metrics, dict):
+        return {
+            "day_utc": str(risk_metrics.get("day_utc", src.get("day_utc", "")) or ""),
+            "trade_count_today": int(risk_metrics.get("trade_count_today", src.get("trade_count_today", 0)) or 0),
+            "daily_pnl_realized": float(
+                risk_metrics.get("daily_pnl_realized", src.get("daily_pnl_realized", 0.0)) or 0.0
+            ),
+            "daily_pnl_sim": float(risk_metrics.get("daily_pnl_sim", src.get("daily_pnl_sim", 0.0)) or 0.0),
+            "equity_peak": float(risk_metrics.get("equity_peak", src.get("equity_peak", 0.0)) or 0.0),
+            "consecutive_losses": int(risk_metrics.get("consecutive_losses", src.get("consecutive_losses", 0)) or 0),
+            "cooldown_until_ts": int(risk_metrics.get("cooldown_until_ts", src.get("cooldown_until_ts", 0)) or 0),
+            "pause_until_ts": int(risk_metrics.get("pause_until_ts", src.get("pause_until_ts", 0)) or 0),
+            "pause_reason": str(risk_metrics.get("pause_reason", src.get("pause_reason", "")) or ""),
+            "kill_reason": str(risk_metrics.get("kill_reason", src.get("kill_reason", "")) or ""),
+            "cooldown_until_utc": str(risk_metrics.get("cooldown_until_utc", src.get("cooldown_until_utc", "")) or ""),
+        }
+    return {
+        "day_utc": str(src.get("day_utc", "") or ""),
+        "trade_count_today": int(src.get("trade_count_today", 0) or 0),
+        "daily_pnl_realized": float(src.get("daily_pnl_realized", 0.0) or 0.0),
+        "daily_pnl_sim": float(src.get("daily_pnl_sim", 0.0) or 0.0),
+        "equity_peak": float(src.get("equity_peak", 0.0) or 0.0),
+        "consecutive_losses": int(src.get("consecutive_losses", 0) or 0),
+        "cooldown_until_ts": int(src.get("cooldown_until_ts", 0) or 0),
+        "pause_until_ts": int(src.get("pause_until_ts", 0) or 0),
+        "pause_reason": str(src.get("pause_reason", "") or ""),
+        "kill_reason": str(src.get("kill_reason", "") or ""),
+        "cooldown_until_utc": str(src.get("cooldown_until_utc", "") or ""),
+    }
 
 
 

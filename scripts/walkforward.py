@@ -23,10 +23,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 _log = logging.getLogger(__name__)
 
 
-def _run_id(symbols: list[str], train_days: int, test_days: int, step_days: int, start_days_ago: int) -> str:
+def _run_id(
+    symbols: list[str],
+    train_days: int,
+    test_days: int,
+    step_days: int,
+    start_days_ago: int,
+    end_days_ago: int,
+) -> str:
     """Deterministic run_id for this walk-forward run (same args = same id)."""
     sig = json.dumps(
-        {"symbols": symbols, "train_days": train_days, "test_days": test_days, "step_days": step_days, "start_days_ago": start_days_ago},
+        {
+            "symbols": symbols,
+            "train_days": train_days,
+            "test_days": test_days,
+            "step_days": step_days,
+            "start_days_ago": start_days_ago,
+            "end_days_ago": end_days_ago,
+        },
         sort_keys=True,
     )
     return hashlib.sha256(sig.encode()).hexdigest()[:12]
@@ -34,6 +48,7 @@ def _run_id(symbols: list[str], train_days: int, test_days: int, step_days: int,
 
 def _iter_windows(
     start_days_ago: int,
+    end_days_ago: int,
     train_days: int,
     test_days: int,
     step_days: int,
@@ -42,18 +57,23 @@ def _iter_windows(
     Yield (test_end_days_ago, test_start_days_ago) for each rolling window.
     Chronological order: oldest first (largest end_days_ago).
     """
-    # Window 0: train [start, start+train], test [start+train, start+train+test]
-    # test_end_days_ago = start_days_ago - train_days - test_days
-    # test_start_days_ago = start_days_ago - train_days
+    # Window 0 relative to shifted anchor (now - end_days_ago):
+    # test_end_rel = start_days_ago - train_days - test_days
+    # test_start_rel = start_days_ago - train_days
+    # Convert to absolute "days ago from now":
+    # test_end_days_ago = end_days_ago + test_end_rel
+    # test_start_days_ago = end_days_ago + test_start_rel
     # Window i: step forward by step_days
-    # test_end_days_ago = start_days_ago - train_days - test_days - i*step_days
-    # test_start_days_ago = start_days_ago - train_days - i*step_days
+    # test_end_rel = start_days_ago - train_days - test_days - i*step_days
+    # test_start_rel = start_days_ago - train_days - i*step_days
     i = 0
     while True:
-        test_start_days_ago = start_days_ago - train_days - i * step_days
-        test_end_days_ago = test_start_days_ago - test_days
-        if test_end_days_ago < 0:
+        test_start_rel = start_days_ago - train_days - i * step_days
+        test_end_rel = test_start_rel - test_days
+        if test_end_rel < 0:
             break
+        test_start_days_ago = end_days_ago + test_start_rel
+        test_end_days_ago = end_days_ago + test_end_rel
         yield (test_end_days_ago, test_start_days_ago)
         i += 1
 
@@ -65,6 +85,13 @@ def main() -> int:
     parser.add_argument("--test-days", type=int, default=30, help="Out-of-sample test days per window")
     parser.add_argument("--step-days", type=int, default=30, help="Step between windows (days)")
     parser.add_argument("--start-days-ago", type=int, default=365, help="Total lookback (days from now)")
+    parser.add_argument("--end-days-ago", type=int, default=1, help="Shift run anchor to now - N days.")
+    parser.add_argument("--cache-only", action="store_true", help="Require cache-only replay mode (fail if cache missing).")
+    parser.add_argument("--strategy", choices=["v2", "v3"], default="v2", help="Strategy mode for replay windows.")
+    parser.add_argument("--donchian-n-15m", type=int, default=None, help="Override DONCHIAN_N_15M for V3.")
+    parser.add_argument("--body-atr-15m", type=float, default=None, help="Override BODY_ATR_15M for V3.")
+    parser.add_argument("--trend-sep-atr-1h", type=float, default=None, help="Override TREND_SEP_ATR_1H for V3.")
+    parser.add_argument("--use-5m-confirm", type=int, choices=[0, 1], default=None, help="Override USE_5M_CONFIRM (1/0) for V3.")
     args = parser.parse_args()
 
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
@@ -76,23 +103,40 @@ def main() -> int:
             raise ValueError(f"Symbol contains whitespace: {repr(sym)}")
     _log.info("NORMALIZED_SYMBOLS=%s count=%d", symbols, len(symbols))
 
-    # Fixed env: V2 only, TP_R exits (no BE, no partials, no trailing)
+    # Fixed env: selected strategy only + TP_R style exits (no BE, no partials, no trailing).
     fixed_env = {
         "STRATEGY_V1": "0",
-        "V2_TREND_PULLBACK": "1",
+        "V2_TREND_PULLBACK": "1" if args.strategy == "v2" else "0",
+        "V3_TREND_BREAKOUT": "1" if args.strategy == "v3" else "0",
         "V1_SETUP_BREAKOUT": "0",
         "V1_SETUP_TRAP": "0",
         "BE_AT_R": "0",
         "PARTIAL_TP_AT_R": "0",
         "TRAIL_AFTER_R": "0",
     }
+    if args.strategy == "v3":
+        if args.donchian_n_15m is not None:
+            fixed_env["DONCHIAN_N_15M"] = str(int(args.donchian_n_15m))
+        if args.body_atr_15m is not None:
+            fixed_env["BODY_ATR_15M"] = str(float(args.body_atr_15m))
+        if args.trend_sep_atr_1h is not None:
+            fixed_env["TREND_SEP_ATR_1H"] = str(float(args.trend_sep_atr_1h))
+        if args.use_5m_confirm is not None:
+            fixed_env["USE_5M_CONFIRM"] = "1" if int(args.use_5m_confirm) == 1 else "0"
 
     replay_script = _project_root / "scripts" / "replay.py"
     if not replay_script.exists():
         _log.error("Replay script not found: %s", replay_script)
         return 1
 
-    run_id = _run_id(symbols, args.train_days, args.test_days, args.step_days, args.start_days_ago)
+    run_id = _run_id(
+        symbols,
+        args.train_days,
+        args.test_days,
+        args.step_days,
+        args.start_days_ago,
+        args.end_days_ago,
+    )
     data_dir = _project_root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -100,7 +144,13 @@ def main() -> int:
     symbols_str = ",".join(symbols)
 
     for win_idx, (test_end_days_ago, test_start_days_ago) in enumerate(
-        _iter_windows(args.start_days_ago, args.train_days, args.test_days, args.step_days)
+        _iter_windows(
+            args.start_days_ago,
+            args.end_days_ago,
+            args.train_days,
+            args.test_days,
+            args.step_days,
+        )
     ):
         _log.info(
             "Window %d: test [%d, %d] days ago",
@@ -121,6 +171,8 @@ def main() -> int:
             "--tf-setup", "60",
             "--step-bars", "1",
         ]
+        if args.cache_only:
+            cmd.append("--cache-only")
 
         env = dict(os.environ)
         for k, v in fixed_env.items():
@@ -134,6 +186,10 @@ def main() -> int:
             text=True,
             timeout=600,
         )
+        if proc.returncode != 0:
+            _log.error("Window %d replay failed (exit=%d).", win_idx + 1, proc.returncode)
+            _log.error("stderr: %s", (proc.stderr or "").strip()[-1000:])
+            return 1
 
         # Replay writes replay_summary_{run_id}.json - run_id is deterministic from params
         combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
@@ -226,6 +282,13 @@ def main() -> int:
             "test_days": args.test_days,
             "step_days": args.step_days,
             "start_days_ago": args.start_days_ago,
+            "end_days_ago": args.end_days_ago,
+            "cache_only": bool(args.cache_only),
+            "strategy": args.strategy,
+            "donchian_n_15m": args.donchian_n_15m,
+            "body_atr_15m": args.body_atr_15m,
+            "trend_sep_atr_1h": args.trend_sep_atr_1h,
+            "use_5m_confirm": args.use_5m_confirm,
         },
         "windows": results,
     }

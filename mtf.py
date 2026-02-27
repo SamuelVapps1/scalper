@@ -9,7 +9,10 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from indicators import atr_wilder, ema, rsi_wilder
+from indicators import rsi_wilder
+from indicators_engine import precompute_tf_indicators
+from mtf_engine import build_snapshot_at_index
+from scalper.settings import get_settings
 
 # Cache key: (symbol, interval_min, limit) -> (candles, expiry_ts)
 _CACHE: Dict[Tuple[str, int, int], Tuple[List[Dict[str, float]], float]] = {}
@@ -115,11 +118,12 @@ def _compute_snapshot_for_tf(
     candles: List[Dict[str, float]],
     tf_min: int,
 ) -> Dict[str, Any]:
-    """Compute ema20/50/200, atr14, close, high, low, ts for one TF."""
+    """Compute snapshot from precomputed indicator arrays for one TF."""
     result: Dict[str, Any] = {
         "ema20": 0.0,
         "ema50": 0.0,
         "ema200": 0.0,
+        "ema200_prev10": None,
         "ema200_slope_10": None,
         "atr14": 0.0,
         "rsi14": None,
@@ -132,30 +136,12 @@ def _compute_snapshot_for_tf(
     if not candles:
         return result
 
+    frame = precompute_tf_indicators(candles)
+    base = build_snapshot_at_index(frame, len(frame["ts"]) - 1)
+    if base:
+        result.update(base)
+
     closes = [float(c["close"]) for c in candles]
-    highs = [float(c["high"]) for c in candles]
-    lows = [float(c["low"]) for c in candles]
-
-    last = candles[-1]
-    result["open"] = float(last.get("open", 0) or 0)
-    result["close"] = float(last["close"])
-    result["high"] = float(last["high"])
-    result["low"] = float(last["low"])
-    result["ts"] = str(last.get("timestamp_utc", ""))
-
-    ema20_list = ema(closes, 20)
-    ema50_list = ema(closes, 50)
-    ema200_list = ema(closes, 200)
-    atr_list = atr_wilder(highs, lows, closes, 14)
-
-    result["ema20"] = ema20_list[-1] if ema20_list else 0.0
-    result["ema50"] = ema50_list[-1] if ema50_list else 0.0
-    result["ema200"] = ema200_list[-1] if ema200_list else 0.0
-    if len(ema200_list) >= 11:
-        result["ema200_slope_10"] = ema200_list[-1] - ema200_list[-11]
-    else:
-        result["ema200_slope_10"] = None
-    result["atr14"] = atr_list[-1] if atr_list and atr_list[-1] is not None else 0.0
     if tf_min == 15:
         rsi_list = rsi_wilder(closes, 14)
         result["rsi14"] = rsi_list[-1] if rsi_list and rsi_list[-1] is not None else None
@@ -275,21 +261,20 @@ def build_mtf_snapshot(symbol: str) -> Tuple[Dict[int, Dict[str, Any]], Optional
     global _LAST_MTF_FAILURE_REASON
     _LAST_MTF_FAILURE_REASON = None
     try:
-        import config as _config
-
+        settings = get_settings()
         tfs = [
-            getattr(_config, "TF_BIAS", 240),
-            getattr(_config, "TF_SETUP", 60),
-            getattr(_config, "TF_TRIGGER", 15),
-            getattr(_config, "TF_TIMING", 5),
+            settings.risk.tf_bias,
+            settings.risk.tf_setup,
+            settings.risk.tf_trigger,
+            settings.risk.tf_timing,
         ]
         lookbacks = {
-            getattr(_config, "TF_BIAS", 240): getattr(_config, "LOOKBACK_4H", 250),
-            getattr(_config, "TF_SETUP", 60): getattr(_config, "LOOKBACK_1H", 250),
-            getattr(_config, "TF_TRIGGER", 15): getattr(_config, "LOOKBACK_15M", 400),
-            getattr(_config, "TF_TIMING", 5): getattr(_config, "LOOKBACK_5M", 400),
+            settings.risk.tf_bias: settings.risk.lookback_4h,
+            settings.risk.tf_setup: settings.risk.lookback_1h,
+            settings.risk.tf_trigger: settings.risk.lookback_15m,
+            settings.risk.tf_timing: settings.risk.lookback_5m,
         }
-        cache_ttl = getattr(_config, "CANDLES_CACHE_TTL_SECONDS", 120)
+        cache_ttl = settings.cache.candles_cache_ttl_seconds
         snap = get_mtf_snapshot(symbol, tfs, lookbacks, cache_ttl)
         if snap:
             return (snap, None)

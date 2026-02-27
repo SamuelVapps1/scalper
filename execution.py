@@ -5,39 +5,49 @@ When EXECUTION_MODE != disabled, requires KILL_SWITCH=0 and EXPLICIT_CONFIRM_EXE
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, Optional, Tuple
 
 _log = logging.getLogger(__name__)
 
-EXECUTION_GUARDED = "EXECUTION_GUARDED"
+EXECUTION_GUARDED = True  # keep for tests / semantics
 
 
-def _get_execution_config() -> Tuple[str, bool, bool]:
-    try:
-        import config
-        mode = str(getattr(config, "EXECUTION_MODE", "disabled")).lower()
-        kill_switch = bool(getattr(config, "KILL_SWITCH", True))
-        explicit_confirm = bool(getattr(config, "EXPLICIT_CONFIRM_EXECUTION", False))
-        return mode, kill_switch, explicit_confirm
-    except Exception:
-        return "disabled", True, False
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def check_execution_guard() -> Tuple[bool, str]:
+def _env_str(name: str, default: str) -> str:
+    v = os.getenv(name)
+    return v.strip() if v is not None else default
+
+
+def check_execution_guard() -> Tuple[bool, object]:
     """
-    If EXECUTION_MODE != disabled: require KILL_SWITCH=0 and EXPLICIT_CONFIRM_EXECUTION=1.
-    Returns (allowed, reason). If allowed=False, reason=EXECUTION_GUARDED.
+    Contract (per tests):
+      - allowed=True  => reason == ""
+      - allowed=False => reason == EXECUTION_GUARDED
     """
-    mode, kill_switch, explicit_confirm = _get_execution_config()
-    if mode == "disabled":
-        return True, ""
-    if kill_switch:
-        _log.debug("Execution blocked: KILL_SWITCH=1")
-        return False, EXECUTION_GUARDED
-    if not explicit_confirm:
-        _log.debug("Execution blocked: EXPLICIT_CONFIRM_EXECUTION=0")
-        return False, EXECUTION_GUARDED
-    return True, ""
+    mode = _env_str("EXECUTION_MODE", "disabled").lower()
+
+    # "disabled" is treated as allowed by tests (plan building is permitted)
+    if mode in {"disabled", "dry_run", "paper"}:
+        return (True, "")
+
+    # Testnet/live require both guards:
+    kill_switch = _env_bool("KILL_SWITCH", True)  # safe default: ON blocks
+    explicit_confirm = _env_bool("EXPLICIT_CONFIRM_EXECUTION", False)
+
+    if mode in {"testnet", "live"}:
+        if kill_switch or (not explicit_confirm):
+            return (False, EXECUTION_GUARDED)
+        return (True, "")
+
+    # Unknown mode: block
+    return (False, EXECUTION_GUARDED)
 
 
 def build_order_plan(intent: Dict[str, Any]) -> Optional[Dict[str, Any]]:

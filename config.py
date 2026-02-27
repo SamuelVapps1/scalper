@@ -1,643 +1,143 @@
-import os
-import logging
-from pathlib import Path
-from typing import List
+"""
+Temporary compatibility shim.
 
-try:
-    from dotenv import dotenv_values, find_dotenv, load_dotenv
-except Exception:  # pragma: no cover - runtime safety if dependency is unavailable
-    dotenv_values = None
-    find_dotenv = None
-    load_dotenv = None
+Prefer `from scalper.settings import get_settings`.
+"""
 
+from __future__ import annotations
 
-_ENV_BOOTSTRAP_STATE = {
-    "dotenv_path": None,
-    "dotenv_loaded": False,
-    "dotenv_key_forensics": {},
-}
-_TELEGRAM_KEYS = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
+from scalper.settings import _ENV_BOOTSTRAP_STATE, debug_env, debug_risk_config, get_settings
 
+_s = get_settings()
 
-def _emit_env_debug(debug_data: dict, logger=None) -> None:
-    key_forensics = debug_data.get("key_forensics", {})
-    token_info = key_forensics.get("TELEGRAM_BOT_TOKEN", {})
-    chat_info = key_forensics.get("TELEGRAM_CHAT_ID", {})
-    msg = (
-        "Env bootstrap: cwd=%s, config_dir=%s, dotenv_path=%s, dotenv_loaded=%s, "
-        "TELEGRAM_BOT_TOKEN(env_present=%s, env_nonempty=%s, file_present=%s, file_nonempty=%s), "
-        "TELEGRAM_CHAT_ID(env_present=%s, env_nonempty=%s, file_present=%s, file_nonempty=%s)"
-    )
-    target_logger = logger or logging.getLogger(__name__)
-    target_logger.debug(
-        msg,
-        debug_data["cwd"],
-        debug_data["config_dir"],
-        debug_data["dotenv_path"],
-        debug_data["dotenv_loaded"],
-        token_info.get("env_present", False),
-        token_info.get("env_nonempty", False),
-        token_info.get("file_present", False),
-        token_info.get("file_nonempty", False),
-        chat_info.get("env_present", False),
-        chat_info.get("env_nonempty", False),
-        chat_info.get("file_present", False),
-        chat_info.get("file_nonempty", False),
-    )
+BYBIT_BASE_URL = _s.bybit.base_url
+REQUEST_SLEEP_MS = _s.bybit.request_sleep_ms
+EXECUTION_MODE = _s.bybit.execution_mode
+EXPLICIT_CONFIRM_EXECUTION = _s.bybit.explicit_confirm_execution
 
+TELEGRAM_BOT_TOKEN = _s.telegram.bot_token
+TELEGRAM_CHAT_ID = _s.telegram.chat_id
+TELEGRAM_FORMAT = _s.telegram.format
+TELEGRAM_MAX_CHARS_COMPACT = _s.telegram.max_chars_compact
+TELEGRAM_MAX_CHARS_VERBOSE = _s.telegram.max_chars_verbose
+TELEGRAM_SEND_BLOCKED = _s.telegram.send_blocked
+TELEGRAM_SEND_DASHBOARD = _s.telegram.send_dashboard
+TELEGRAM_POLICY = _s.telegram.policy
+TELEGRAM_COMPACT = _s.telegram.compact
+TELEGRAM_EARLY_ENABLED = _s.telegram.early_enabled
+TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M = _s.telegram.early_max_per_symbol_per_15m
 
-def _resolve_env_path():
-    env_path_override = os.getenv("ENV_PATH", "").strip()
-    if env_path_override:
-        resolved_override = Path(env_path_override).expanduser()
-        if not resolved_override.is_absolute():
-            resolved_override = Path.cwd() / resolved_override
-        return str(resolved_override.resolve(strict=False))
+INTERVAL = _s.risk.interval
+LOOKBACK = _s.risk.lookback
+SCAN_SECONDS = _s.risk.scan_seconds
+SCAN_CYCLE_TIMEOUT_SECONDS = _s.risk.scan_cycle_timeout_seconds
+WATCHLIST = _s.risk.watchlist
+WATCHLIST_MODE = _s.risk.watchlist_mode
+WATCHLIST_TOP_N = _s.risk.watchlist_top_n
+WATCHLIST_REFRESH_MINUTES = _s.risk.watchlist_refresh_minutes
+WATCHLIST_REFRESH_MIN = _s.risk.watchlist_refresh_min
+WATCHLIST_MIN_PRICE = _s.risk.watchlist_min_price
+WATCHLIST_MIN_TURNOVER_24H = _s.risk.watchlist_min_turnover_24h
+MIN_TURNOVER_USDT = _s.risk.min_turnover_usdt
+WATCHLIST_EXCLUDE_PREFIXES = _s.risk.watchlist_exclude_prefixes
+WATCHLIST_EXCLUDE_SYMBOLS = _s.risk.watchlist_exclude_symbols
+WATCHLIST_EXCLUDE_REGEX = _s.risk.watchlist_exclude_regex
+WATCHLIST_MAX_SPREAD_BPS = _s.risk.watchlist_max_spread_bps
+MIN_VOL_PCT = _s.risk.min_vol_pct
+MAX_VOL_PCT = _s.risk.max_vol_pct
+WATCHLIST_POOL_N = _s.risk.watchlist_pool_n
+WATCHLIST_RANK = _s.risk.watchlist_rank
+POSITION_MODE = _s.risk.position_mode
+MAX_CONCURRENT_POSITIONS = _s.risk.max_concurrent_positions
+MAX_OPEN_POSITIONS = _s.risk.max_open_positions
+RISK_NOTIFY_BLOCKED_TELEGRAM = _s.risk.risk_notify_blocked_telegram
+RISK_KILL_SWITCH = _s.risk.risk_kill_switch
+KILL_SWITCH = _s.risk.kill_switch
+RISK_MAX_TRADES_PER_DAY = _s.risk.risk_max_trades_per_day
+RISK_MAX_DAILY_LOSS_SIM = _s.risk.risk_max_daily_loss_sim
+RISK_MAX_CONSECUTIVE_LOSSES = _s.risk.risk_max_consecutive_losses
+RISK_COOLDOWN_MINUTES = _s.risk.risk_cooldown_minutes
+RISK_ONE_POSITION_PER_SYMBOL = _s.risk.risk_one_position_per_symbol
+SIGNAL_DEBUG = _s.risk.signal_debug
+KPI_DEBUG = _s.risk.kpi_debug
+NOTIFY_BLOCKED = _s.risk.notify_blocked
+ALWAYS_NOTIFY_INTENTS = _s.risk.always_notify_intents
+HEARTBEAT_MINUTES = _s.risk.heartbeat_minutes
+NOTIFY_SCAN_SUMMARY = _s.risk.notify_scan_summary
+DISABLE_SCAN_SUMMARY = _s.risk.disable_scan_summary
+THRESHOLD_PROFILE = _s.risk.threshold_profile
+EARLY_ENABLED = _s.risk.early_enabled
+EARLY_TF = _s.risk.early_tf
+EARLY_LOOKBACK_5M = _s.risk.early_lookback_5m
+EARLY_MIN_CONF = _s.risk.early_min_conf
+EARLY_REQUIRE_15M_CONTEXT = _s.risk.early_require_15m_context
+EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M = _s.risk.early_max_alerts_per_symbol_per_15m
+TF_BIAS = _s.risk.tf_bias
+TF_SETUP = _s.risk.tf_setup
+TF_TRIGGER = _s.risk.tf_trigger
+TF_TIMING = _s.risk.tf_timing
+LOOKBACK_4H = _s.risk.lookback_4h
+LOOKBACK_1H = _s.risk.lookback_1h
+LOOKBACK_15M = _s.risk.lookback_15m
+LOOKBACK_5M = _s.risk.lookback_5m
+PAPER_POSITION_USDT = _s.risk.paper_position_usdt
+PAPER_FEES_BPS = _s.risk.paper_fees_bps
+PAPER_EQUITY_USDT = _s.risk.paper_equity_usdt
+PAPER_TIMEOUT_BARS = _s.risk.paper_timeout_bars
+PAPER_SL_ATR = _s.risk.paper_sl_atr
+PAPER_TP_ATR = _s.risk.paper_tp_atr
+PAPER_START_EQUITY_USDT = _s.risk.paper_start_equity_usdt
+PAPER_SLIPPAGE_PCT = _s.risk.paper_slippage_pct
+PAPER_FEE_PCT = _s.risk.paper_fee_pct
+SPREAD_BPS = _s.risk.spread_bps
+SLIPPAGE_BPS = _s.risk.slippage_bps
+RISK_PER_TRADE_PCT = _s.risk.risk_per_trade_pct
+DAILY_LOSS_LIMIT_PCT = _s.risk.daily_loss_limit_pct
+MAX_DD_PCT = _s.risk.max_dd_pct
+MAX_TRADES_DAY = _s.risk.max_trades_day
+MIN_SECONDS_BETWEEN_TRADES = _s.risk.min_seconds_between_trades
+MIN_SECONDS_BETWEEN_SYMBOL_TRADES = _s.risk.min_seconds_between_symbol_trades
+MAX_SYMBOL_NOTIONAL_PCT = _s.risk.max_symbol_notional_pct
+CLUSTER_BTC_ETH_LIMIT = _s.risk.cluster_btc_eth_limit
+FAIL_CLOSED_ON_SNAPSHOT_MISSING = _s.risk.fail_closed_on_snapshot_missing
 
-    if find_dotenv is None:
-        return None
+STRATEGY_V1 = _s.strategy_v3.strategy_v1
+V1_SETUP_BREAKOUT = _s.strategy_v3.v1_setup_breakout
+V1_SETUP_TRAP = _s.strategy_v3.v1_setup_trap
+V2_TREND_PULLBACK = _s.strategy_v3.v2_trend_pullback
+V3_TREND_BREAKOUT = _s.strategy_v3.v3_trend_breakout
+DONCHIAN_N_15M = _s.strategy_v3.donchian_n_15m
+BODY_ATR_15M = _s.strategy_v3.body_atr_15m
+TREND_SEP_ATR_1H = _s.strategy_v3.trend_sep_atr_1h
+USE_5M_CONFIRM = _s.strategy_v3.use_5m_confirm
+PULLBACK_TOL_ATR = _s.strategy_v3.pullback_tol_atr
+TREND_MIN_SEP_ATR = _s.strategy_v3.trend_min_sep_atr
+MOMO_MIN_BODY_ATR_5M = _s.strategy_v3.momo_min_body_atr_5m
+RETEST_CONFIRM_MODE = _s.strategy_v3.retest_confirm_mode
+BOS_LOOKBACK_5M = _s.strategy_v3.bos_lookback_5m
+BREAKOUT_STRONG_MARKET = _s.strategy_v3.breakout_strong_market
+BREAKOUT_STRONG_BODY_PCT = _s.strategy_v3.breakout_strong_body_pct
+BREAKOUT_BUFFER_ATR = _s.strategy_v3.breakout_buffer_atr
+TRAP_MIN_WICK_ATR = _s.strategy_v3.trap_min_wick_atr
+REQUIRE_1H_EMA200_ALIGN = _s.strategy_v3.require_1h_ema200_align
+REQUIRE_5M_EMA20_CONFIRM = _s.strategy_v3.require_5m_ema20_confirm
+MIN_ATR_PCT_15M = _s.strategy_v3.min_atr_pct_15m
+MAX_ATR_PCT_15M = _s.strategy_v3.max_atr_pct_15m
+LOG_V3_TRIGGERS = _s.strategy_v3.log_v3_triggers
 
-    dotenv_path = find_dotenv(filename=".env", usecwd=True)
-    if not dotenv_path:
-        dotenv_path = find_dotenv(filename=".env")
-    return dotenv_path or None
+BE_AT_R = _s.replay.be_at_r
+PARTIAL_TP_AT_R = _s.replay.partial_tp_at_r
+TRAIL_AFTER_R = _s.replay.trail_after_r
+REPLAY_EXIT_MODE = _s.replay.replay_exit_mode
+REPLAY_PROGRESS_EVERY = _s.replay.replay_progress_every
 
+CANDLES_CACHE_TTL_SECONDS = _s.cache.candles_cache_ttl_seconds
+CACHE_ONLY_GAP_BARS_MAX = _s.cache.cache_only_gap_bars_max
 
-def _parse_dotenv(dotenv_path):
-    if not dotenv_path or dotenv_values is None:
-        return {}
-    try:
-        parsed = dotenv_values(dotenv_path)
-    except Exception:  # pragma: no cover - defensive safety for startup path
-        return {}
-    return dict(parsed or {})
-
-
-def _collect_key_forensics(parsed_dotenv: dict) -> dict:
-    key_forensics = {}
-    for key in _TELEGRAM_KEYS:
-        env_present = key in os.environ
-        env_nonempty = bool(os.getenv(key))
-        file_present = key in parsed_dotenv
-        file_nonempty = bool(parsed_dotenv.get(key))
-        key_forensics[key] = {
-            "env_present": env_present,
-            "env_nonempty": env_nonempty,
-            "file_present": file_present,
-            "file_nonempty": file_nonempty,
-        }
-    return key_forensics
-
-
-def _apply_telegram_env_fallback(parsed_dotenv: dict, key_forensics: dict) -> None:
-    for key in _TELEGRAM_KEYS:
-        forensic = key_forensics.get(key, {})
-        if (not forensic.get("env_nonempty")) and forensic.get("file_nonempty"):
-            os.environ[key] = str(parsed_dotenv.get(key))
-
-
-def _collect_env_debug_data(dotenv_path, dotenv_loaded: bool, key_forensics: dict) -> dict:
-    return {
-        "cwd": os.getcwd(),
-        "config_dir": str(Path(__file__).resolve().parent),
-        "dotenv_path": dotenv_path or "<not found>",
-        "dotenv_loaded": bool(dotenv_loaded),
-        "key_forensics": key_forensics,
-    }
-
-
-def _bootstrap_env(logger=None):
-    dotenv_path = _resolve_env_path()
-    parsed_dotenv = _parse_dotenv(dotenv_path)
-    key_forensics = _collect_key_forensics(parsed_dotenv)
-    dotenv_loaded = False
-    if dotenv_path and load_dotenv is not None:
-        try:
-            dotenv_loaded = bool(load_dotenv(dotenv_path=dotenv_path, override=False))
-        except Exception:  # pragma: no cover - defensive safety for startup path
-            dotenv_loaded = False
-
-    _apply_telegram_env_fallback(parsed_dotenv, key_forensics)
-
-    _ENV_BOOTSTRAP_STATE["dotenv_path"] = dotenv_path
-    _ENV_BOOTSTRAP_STATE["dotenv_loaded"] = dotenv_loaded
-    _ENV_BOOTSTRAP_STATE["dotenv_key_forensics"] = key_forensics
-
-    debug_data = _collect_env_debug_data(dotenv_path, dotenv_loaded, key_forensics)
-    _emit_env_debug(debug_data, logger=logger)
-    return debug_data
-
-
-def debug_env(logger=None):
-    dotenv_path = _ENV_BOOTSTRAP_STATE.get("dotenv_path")
-    parsed_dotenv = _parse_dotenv(dotenv_path)
-    key_forensics = _collect_key_forensics(parsed_dotenv)
-    debug_data = _collect_env_debug_data(
-        dotenv_path,
-        bool(_ENV_BOOTSTRAP_STATE.get("dotenv_loaded")),
-        key_forensics,
-    )
-    _emit_env_debug(debug_data, logger=logger)
-    return debug_data
-
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    """Robust env bool: 1,true,yes,on -> True; 0,false,no,off,empty -> False."""
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    v = str(raw).strip().lower()
-    if v in {"1", "true", "yes", "y", "on"}:
-        return True
-    if v in {"0", "false", "no", "n", "off", ""}:
-        return False
-    return default
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_str(name: str, default: str) -> str:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return str(raw).strip()
-
-
-def _env_csv(name: str, default: str) -> List[str]:
-    raw = os.getenv(name, default)
-    if raw is None:
-        return []
-    return [item.strip() for item in str(raw).split(",") if item.strip()]
-
-
-def debug_risk_config(logger=None):
-    risk_data = {
-        "WATCHLIST_MODE": WATCHLIST_MODE,
-        "WATCHLIST_TOP_N": WATCHLIST_TOP_N,
-        "WATCHLIST_REFRESH_MINUTES": WATCHLIST_REFRESH_MINUTES,
-        "WATCHLIST_MIN_PRICE": WATCHLIST_MIN_PRICE,
-        "WATCHLIST_MIN_TURNOVER_24H": WATCHLIST_MIN_TURNOVER_24H,
-        "WATCHLIST_EXCLUDE_PREFIXES": WATCHLIST_EXCLUDE_PREFIXES,
-        "WATCHLIST_EXCLUDE_SYMBOLS": WATCHLIST_EXCLUDE_SYMBOLS,
-        "WATCHLIST_EXCLUDE_REGEX": WATCHLIST_EXCLUDE_REGEX,
-        "WATCHLIST_MAX_SPREAD_BPS": WATCHLIST_MAX_SPREAD_BPS,
-        "MIN_VOL_PCT": MIN_VOL_PCT,
-        "MAX_VOL_PCT": MAX_VOL_PCT,
-        "POSITION_MODE": POSITION_MODE,
-        "MAX_CONCURRENT_POSITIONS": MAX_CONCURRENT_POSITIONS,
-        "RISK_KILL_SWITCH": RISK_KILL_SWITCH,
-        "RISK_MAX_TRADES_PER_DAY": RISK_MAX_TRADES_PER_DAY,
-        "RISK_MAX_DAILY_LOSS_SIM": RISK_MAX_DAILY_LOSS_SIM,
-        "RISK_MAX_CONSECUTIVE_LOSSES": RISK_MAX_CONSECUTIVE_LOSSES,
-        "RISK_COOLDOWN_MINUTES": RISK_COOLDOWN_MINUTES,
-        "RISK_ONE_POSITION_PER_SYMBOL": RISK_ONE_POSITION_PER_SYMBOL,
-        "MAX_OPEN_POSITIONS": MAX_OPEN_POSITIONS,
-        "RISK_NOTIFY_BLOCKED_TELEGRAM": RISK_NOTIFY_BLOCKED_TELEGRAM,
-        "DASHBOARD_TELEGRAM": DASHBOARD_TELEGRAM,
-        "DASHBOARD_TOP_N": DASHBOARD_TOP_N,
-        "DASHBOARD_INCLUDE_BLOCKED": DASHBOARD_INCLUDE_BLOCKED,
-        "DASHBOARD_INCLUDE_MARKET_SNAPSHOT": DASHBOARD_INCLUDE_MARKET_SNAPSHOT,
-        "DASHBOARD_INCLUDE_DEBUG_WHY_NONE": DASHBOARD_INCLUDE_DEBUG_WHY_NONE,
-        "PAPER_POSITION_NOTIONAL_USDT": PAPER_POSITION_NOTIONAL_USDT,
-        "PAPER_POSITION_USDT": PAPER_POSITION_USDT,
-        "PAPER_FEES_BPS": PAPER_FEES_BPS,
-        "SPREAD_BPS": SPREAD_BPS,
-        "SLIPPAGE_BPS": SLIPPAGE_BPS,
-        "PAPER_SL_ATR": PAPER_SL_ATR,
-        "PAPER_TP_ATR": PAPER_TP_ATR,
-        "PAPER_TIMEOUT_BARS": PAPER_TIMEOUT_BARS,
-        "PAPER_EQUITY_USDT": PAPER_EQUITY_USDT,
-        "RISK_PER_TRADE_PCT": RISK_PER_TRADE_PCT,
-        "MAX_NOTIONAL_USDT": MAX_NOTIONAL_USDT,
-        "SIGNAL_DEBUG": SIGNAL_DEBUG,
-        "KPI_DEBUG": KPI_DEBUG,
-        "RANGE_LOOKBACK_BARS": RANGE_LOOKBACK_BARS,
-        "RANGE_EXCLUDE_TAIL": RANGE_EXCLUDE_TAIL,
-        "MIN_RANGE_ATR": MIN_RANGE_ATR,
-        "RB_RANGE_BARS": RB_RANGE_BARS,
-        "RB_MIN_RANGE_ATR": RB_MIN_RANGE_ATR,
-        "RB_BREAKOUT_BUFFER_ATR": RB_BREAKOUT_BUFFER_ATR,
-        "RB_RETEST_TOL_ATR": RB_RETEST_TOL_ATR,
-        "RB_CONFIRM_CLOSE_BUFFER_ATR": RB_CONFIRM_CLOSE_BUFFER_ATR,
-        "FB_SWEEP_WICK_ATR": FB_SWEEP_WICK_ATR,
-        "FB_CLOSE_BACK_INSIDE_BUFFER_ATR": FB_CLOSE_BACK_INSIDE_BUFFER_ATR,
-        "FB_MIN_DIST_FROM_EMA200_PCT": FB_MIN_DIST_FROM_EMA200_PCT,
-        "FB_MIN_CONFIDENCE": FB_MIN_CONFIDENCE,
-        "TRAP_MIN_WICK_ATR": TRAP_MIN_WICK_ATR,
-        "TRAP_CLOSE_BACK_ATR": TRAP_CLOSE_BACK_ATR,
-        "BREAKOUT_BUFFER_ATR": BREAKOUT_BUFFER_ATR,
-        "DEDUP_BARS": DEDUP_BARS,
-        "EARLY_MIN_CONF": EARLY_MIN_CONF,
-        "EARLY_ENABLED": EARLY_ENABLED,
-        "EARLY_TF": EARLY_TF,
-        "EARLY_LOOKBACK_5M": EARLY_LOOKBACK_5M,
-        "EARLY_REQUIRE_15M_CONTEXT": EARLY_REQUIRE_15M_CONTEXT,
-        "EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M": EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M,
-        "THRESHOLD_PROFILE": THRESHOLD_PROFILE,
-        "TELEGRAM_FORMAT": TELEGRAM_FORMAT,
-        "TELEGRAM_MAX_CHARS_COMPACT": TELEGRAM_MAX_CHARS_COMPACT,
-        "TELEGRAM_MAX_CHARS_VERBOSE": TELEGRAM_MAX_CHARS_VERBOSE,
-        "TELEGRAM_SEND_BLOCKED": TELEGRAM_SEND_BLOCKED,
-        "TELEGRAM_SEND_DASHBOARD": TELEGRAM_SEND_DASHBOARD,
-        "NOTIFY_BLOCKED": NOTIFY_BLOCKED,
-        "ALWAYS_NOTIFY_INTENTS": ALWAYS_NOTIFY_INTENTS,
-        "HEARTBEAT_MINUTES": HEARTBEAT_MINUTES,
-        "NOTIFY_SCAN_SUMMARY": NOTIFY_SCAN_SUMMARY,
-        "DISABLE_SCAN_SUMMARY": DISABLE_SCAN_SUMMARY,
-        "DASHBOARD_HOST": DASHBOARD_HOST,
-        "DASHBOARD_PORT": DASHBOARD_PORT,
-        "TF_BIAS": TF_BIAS,
-        "TF_SETUP": TF_SETUP,
-        "TF_TRIGGER": TF_TRIGGER,
-        "TF_TIMING": TF_TIMING,
-        "LOOKBACK_4H": LOOKBACK_4H,
-        "LOOKBACK_1H": LOOKBACK_1H,
-        "LOOKBACK_15M": LOOKBACK_15M,
-        "LOOKBACK_5M": LOOKBACK_5M,
-        "CANDLES_CACHE_TTL_SECONDS": CANDLES_CACHE_TTL_SECONDS,
-        "CACHE_ONLY_GAP_BARS_MAX": CACHE_ONLY_GAP_BARS_MAX,
-        "TELEGRAM_POLICY": TELEGRAM_POLICY,
-        "SCAN_SUMMARY_MINUTES": SCAN_SUMMARY_MINUTES,
-        "LOG_V3_TRIGGERS": LOG_V3_TRIGGERS,
-        "REPLAY_PROGRESS_EVERY": REPLAY_PROGRESS_EVERY,
-    }
-    target_logger = logger or logging.getLogger(__name__)
-    target_logger.debug("Risk config: %s", risk_data)
-    return risk_data
-
-
-_bootstrap_env()
-
-BYBIT_BASE_URL = os.getenv("BYBIT_BASE_URL", "https://api.bybit.com").rstrip("/")
-
-WATCHLIST_RAW = os.getenv("WATCHLIST", "")
-WATCHLIST: List[str] = [s.strip().upper() for s in WATCHLIST_RAW.split(",") if s.strip()]
-WATCHLIST_MODE = os.getenv("WATCHLIST_MODE", "static").strip().lower()
-if WATCHLIST_MODE not in {"static", "topn", "dynamic"}:
-    WATCHLIST_MODE = "static"
-WATCHLIST_TOP_N = _env_int("WATCHLIST_TOP_N", 10)
-if WATCHLIST_TOP_N < 1:
-    WATCHLIST_TOP_N = 10
-WATCHLIST_REFRESH_MINUTES = _env_int("WATCHLIST_REFRESH_MINUTES", _env_int("WATCHLIST_REFRESH_MIN", 60))
-if WATCHLIST_REFRESH_MINUTES < 1:
-    WATCHLIST_REFRESH_MINUTES = 60
-WATCHLIST_REFRESH_MIN = WATCHLIST_REFRESH_MINUTES
-WATCHLIST_MIN_PRICE = _env_float("WATCHLIST_MIN_PRICE", 0.01)
-if WATCHLIST_MIN_PRICE < 0:
-    WATCHLIST_MIN_PRICE = 0.0
-WATCHLIST_MIN_TURNOVER_24H = _env_float("WATCHLIST_MIN_TURNOVER_24H", 100000000.0)
-if WATCHLIST_MIN_TURNOVER_24H < 0:
-    WATCHLIST_MIN_TURNOVER_24H = 0.0
-MIN_TURNOVER_USDT = _env_float("MIN_TURNOVER_USDT", WATCHLIST_MIN_TURNOVER_24H)
-WATCHLIST_EXCLUDE_PREFIXES = _env_csv("WATCHLIST_EXCLUDE_PREFIXES", "1000,10000")
-WATCHLIST_EXCLUDE_SYMBOLS = [s.upper() for s in _env_csv("WATCHLIST_EXCLUDE_SYMBOLS", "")]
-WATCHLIST_EXCLUDE_REGEX = os.getenv("WATCHLIST_EXCLUDE_REGEX", "").strip()
-WATCHLIST_MAX_SPREAD_BPS = _env_float("WATCHLIST_MAX_SPREAD_BPS", 0.0)
-if WATCHLIST_MAX_SPREAD_BPS < 0:
-    WATCHLIST_MAX_SPREAD_BPS = 0.0
-MIN_VOL_PCT = _env_float("MIN_VOL_PCT", 0.8)
-if MIN_VOL_PCT < 0:
-    MIN_VOL_PCT = 0.0
-MAX_VOL_PCT = _env_float("MAX_VOL_PCT", 8.0)
-if MAX_VOL_PCT <= 0:
-    MAX_VOL_PCT = 8.0
-WATCHLIST_POOL_N = _env_int("WATCHLIST_POOL_N", 30)
-if WATCHLIST_POOL_N < 1:
-    WATCHLIST_POOL_N = 30
-WATCHLIST_RANK = os.getenv("WATCHLIST_RANK", "turnover").strip().lower()
-if WATCHLIST_RANK not in {"turnover", "turnover_vol", "momentum_1h"}:
-    WATCHLIST_RANK = "turnover"
-
-INTERVAL = os.getenv("INTERVAL", "15")
-LOOKBACK = int(os.getenv("LOOKBACK", "300"))
-SCAN_SECONDS = int(os.getenv("SCAN_SECONDS", "60"))
-
-# MTF (Multi-Timeframe) pipeline: 4H/1H/15m/5m
-TF_BIAS = _env_int("TF_BIAS", 240)
-TF_SETUP = _env_int("TF_SETUP", 60)
-TF_TRIGGER = _env_int("TF_TRIGGER", 15)
-TF_TIMING = _env_int("TF_TIMING", 5)
-LOOKBACK_4H = _env_int("LOOKBACK_4H", 250)
-LOOKBACK_1H = _env_int("LOOKBACK_1H", 250)
-LOOKBACK_15M = _env_int("LOOKBACK_15M", 400)
-LOOKBACK_5M = _env_int("LOOKBACK_5M", 400)
-CANDLES_CACHE_TTL_SECONDS = _env_int("CANDLES_CACHE_TTL_SECONDS", 120)
-if CANDLES_CACHE_TTL_SECONDS < 1:
-    CANDLES_CACHE_TTL_SECONDS = 120
-CACHE_ONLY_GAP_BARS_MAX = _env_int("CACHE_ONLY_GAP_BARS_MAX", 12)
-if CACHE_ONLY_GAP_BARS_MAX < 0:
-    CACHE_ONLY_GAP_BARS_MAX = 12
-REQUEST_SLEEP_MS = _env_int("REQUEST_SLEEP_MS", 250)
-if REQUEST_SLEEP_MS < 0:
-    REQUEST_SLEEP_MS = 250
-
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", os.getenv("CHAT_ID", ""))
-TELEGRAM_FORMAT = os.getenv("TELEGRAM_FORMAT", "compact").strip().lower()
-if TELEGRAM_FORMAT not in {"compact", "verbose"}:
-    TELEGRAM_FORMAT = "compact"
-TELEGRAM_MAX_CHARS_COMPACT = _env_int("TELEGRAM_MAX_CHARS_COMPACT", 900)
-if TELEGRAM_MAX_CHARS_COMPACT < 80:
-    TELEGRAM_MAX_CHARS_COMPACT = 900
-TELEGRAM_MAX_CHARS_VERBOSE = _env_int("TELEGRAM_MAX_CHARS_VERBOSE", 2500)
-if TELEGRAM_MAX_CHARS_VERBOSE < 200:
-    TELEGRAM_MAX_CHARS_VERBOSE = 2500
-TELEGRAM_SEND_BLOCKED = _env_bool("TELEGRAM_SEND_BLOCKED", False)
-TELEGRAM_SEND_DASHBOARD = _env_bool("TELEGRAM_SEND_DASHBOARD", False)
-NOTIFY_BLOCKED = _env_bool("NOTIFY_BLOCKED", False)
-ALWAYS_NOTIFY_INTENTS = _env_bool("ALWAYS_NOTIFY_INTENTS", False)
-HEARTBEAT_MINUTES = _env_int("HEARTBEAT_MINUTES", 15)
-if HEARTBEAT_MINUTES < 1:
-    HEARTBEAT_MINUTES = 15
-TELEGRAM_EARLY_ENABLED = _env_bool("TELEGRAM_EARLY_ENABLED", False)
-TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M = _env_int("TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M", 1)
-if TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M < 1:
-    TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M = 1
-TELEGRAM_COMPACT = _env_bool("TELEGRAM_COMPACT", True)
-NOTIFY_SCAN_SUMMARY = _env_bool("NOTIFY_SCAN_SUMMARY", False)
-DISABLE_SCAN_SUMMARY = _env_bool("DISABLE_SCAN_SUMMARY", True)
-TELEGRAM_POLICY = str(os.getenv("TELEGRAM_POLICY", "events")).strip().lower()
-if TELEGRAM_POLICY not in {"events", "periodic", "off"}:
-    TELEGRAM_POLICY = "events"
-SCAN_SUMMARY_MINUTES = _env_int("SCAN_SUMMARY_MINUTES", 30)
-if SCAN_SUMMARY_MINUTES < 1:
-    SCAN_SUMMARY_MINUTES = 30
-
-POSITION_MODE = str(os.getenv("POSITION_MODE", "global") or "global").strip().lower()
-try:
-    MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "1"))
-except (TypeError, ValueError):
-    MAX_CONCURRENT_POSITIONS = 1
-if MAX_CONCURRENT_POSITIONS < 0:
-    MAX_CONCURRENT_POSITIONS = 0
-
-RISK_KILL_SWITCH = _env_bool("RISK_KILL_SWITCH", False)
-KILL_SWITCH = _env_bool("KILL_SWITCH", RISK_KILL_SWITCH)
-
-EXECUTION_MODE = _env_str("EXECUTION_MODE", "disabled").lower()
-if EXECUTION_MODE not in ("disabled", "testnet", "live"):
-    EXECUTION_MODE = "disabled"
-EXPLICIT_CONFIRM_EXECUTION = _env_bool("EXPLICIT_CONFIRM_EXECUTION", False)
-RISK_MAX_TRADES_PER_DAY = _env_int("RISK_MAX_TRADES_PER_DAY", 10)
-RISK_MAX_DAILY_LOSS_SIM = _env_float("RISK_MAX_DAILY_LOSS_SIM", 100.0)
-RISK_MAX_CONSECUTIVE_LOSSES = _env_int("RISK_MAX_CONSECUTIVE_LOSSES", 3)
-RISK_COOLDOWN_MINUTES = _env_int("RISK_COOLDOWN_MINUTES", 30)
-RISK_ONE_POSITION_PER_SYMBOL = _env_bool("RISK_ONE_POSITION_PER_SYMBOL", True)
-# Backward compatibility:
-# - If MAX_OPEN_POSITIONS is not set, keep legacy RISK_ONE_POSITION_ONLY behavior.
-# - RISK_ONE_POSITION_ONLY=True -> 1, False -> 0 (disabled limit).
-_LEGACY_ONE_POSITION_ONLY = _env_bool("RISK_ONE_POSITION_ONLY", True)
-MAX_OPEN_POSITIONS = _env_int(
-    "MAX_OPEN_POSITIONS",
-    1 if _LEGACY_ONE_POSITION_ONLY else 0,
-)
-if MAX_OPEN_POSITIONS < 0:
-    MAX_OPEN_POSITIONS = 0
-RISK_NOTIFY_BLOCKED_TELEGRAM = _env_bool("RISK_NOTIFY_BLOCKED_TELEGRAM", False)
-
-DASHBOARD_TELEGRAM = _env_bool("DASHBOARD_TELEGRAM", False)
-DASHBOARD_TOP_N = _env_int("DASHBOARD_TOP_N", 3)
-if DASHBOARD_TOP_N < 1:
-    DASHBOARD_TOP_N = 1
-DASHBOARD_INCLUDE_BLOCKED = _env_bool("DASHBOARD_INCLUDE_BLOCKED", True)
-DASHBOARD_INCLUDE_MARKET_SNAPSHOT = _env_bool("DASHBOARD_INCLUDE_MARKET_SNAPSHOT", True)
-DASHBOARD_INCLUDE_DEBUG_WHY_NONE = _env_bool(
-    "DASHBOARD_INCLUDE_DEBUG_WHY_NONE",
-    _env_bool("SIGNAL_DEBUG", False),
-)
-
-PAPER_POSITION_NOTIONAL_USDT = _env_float("PAPER_POSITION_NOTIONAL_USDT", 50.0)
-if PAPER_POSITION_NOTIONAL_USDT < 0:
-    PAPER_POSITION_NOTIONAL_USDT = 0.0
-PAPER_POSITION_USDT = _env_float("PAPER_POSITION_USDT", 20.0)
-if PAPER_POSITION_USDT < 0:
-    PAPER_POSITION_USDT = 0.0
-PAPER_FEES_BPS = _env_float("PAPER_FEES_BPS", 6.0)
-if PAPER_FEES_BPS < 0:
-    PAPER_FEES_BPS = 0.0
-SPREAD_BPS = _env_float("SPREAD_BPS", 2.0)
-if SPREAD_BPS < 0:
-    SPREAD_BPS = 0.0
-SLIPPAGE_BPS = _env_float("SLIPPAGE_BPS", 3.0)
-if SLIPPAGE_BPS < 0:
-    SLIPPAGE_BPS = 0.0
-PAPER_SL_ATR = _env_float("PAPER_SL_ATR", 1.0)
-if PAPER_SL_ATR <= 0:
-    PAPER_SL_ATR = 1.0
-PAPER_TP_ATR = _env_float("PAPER_TP_ATR", 1.5)
-if PAPER_TP_ATR <= 0:
-    PAPER_TP_ATR = 1.5
-PAPER_TIMEOUT_BARS = _env_int("PAPER_TIMEOUT_BARS", 12)
-if PAPER_TIMEOUT_BARS < 1:
-    PAPER_TIMEOUT_BARS = 12
-# Paper exit enhancements (BE, partial TP, trail)
-BE_AT_R = _env_float("BE_AT_R", 1.0)
-if BE_AT_R < 0:
-    BE_AT_R = 1.0
-PARTIAL_TP_AT_R = _env_float("PARTIAL_TP_AT_R", 0.0)
-if PARTIAL_TP_AT_R < 0:
-    PARTIAL_TP_AT_R = 0.0
-PARTIAL_TP_PCT = _env_float("PARTIAL_TP_PCT", 0.5)
-if PARTIAL_TP_PCT <= 0 or PARTIAL_TP_PCT > 1:
-    PARTIAL_TP_PCT = 0.5
-TRAIL_AFTER_R = _env_float("TRAIL_AFTER_R", 0.0)
-if TRAIL_AFTER_R < 0:
-    TRAIL_AFTER_R = 0.0
-TRAIL_ATR_MULT = _env_float("TRAIL_ATR_MULT", 1.0)
-if TRAIL_ATR_MULT < 0:
-    TRAIL_ATR_MULT = 1.0
-PAPER_EQUITY_USDT = _env_float("PAPER_EQUITY_USDT", 200.0)
-if PAPER_EQUITY_USDT < 0:
-    PAPER_EQUITY_USDT = 0.0
-
-# Replay exit mode: "hard" = SL/TP/EOD only; "legacy" = all exit reasons (TIMEOUT, PARTIAL_TP, etc.)
-_REPLAY_EXIT_MODE_RAW = _env_str("REPLAY_EXIT_MODE", "hard").strip().lower()
-REPLAY_EXIT_MODE = "hard" if _REPLAY_EXIT_MODE_RAW == "hard" else "legacy"
-REPLAY_PROGRESS_EVERY = _env_int("REPLAY_PROGRESS_EVERY", 0)
-if REPLAY_PROGRESS_EVERY < 0:
-    REPLAY_PROGRESS_EVERY = 0
-
-RISK_PER_TRADE_PCT = _env_float("RISK_PER_TRADE_PCT", 0.25)
-if RISK_PER_TRADE_PCT < 0:
-    RISK_PER_TRADE_PCT = 0.0
-MAX_NOTIONAL_USDT = _env_float("MAX_NOTIONAL_USDT", 50.0)
-if MAX_NOTIONAL_USDT < 0:
-    MAX_NOTIONAL_USDT = 0.0
-
-SIGNAL_DEBUG = _env_bool("SIGNAL_DEBUG", False)
-KPI_DEBUG = _env_bool("KPI_DEBUG", False)
-LOG_V3_TRIGGERS = _env_bool("LOG_V3_TRIGGERS", False)
-
-RANGE_LOOKBACK_BARS = _env_int("RANGE_LOOKBACK_BARS", 80)
-if RANGE_LOOKBACK_BARS < 10:
-    RANGE_LOOKBACK_BARS = 80
-RANGE_EXCLUDE_TAIL = _env_int("RANGE_EXCLUDE_TAIL", 2)
-if RANGE_EXCLUDE_TAIL < 0:
-    RANGE_EXCLUDE_TAIL = 2
-MIN_RANGE_ATR = _env_float("MIN_RANGE_ATR", 2.0)
-if MIN_RANGE_ATR < 0:
-    MIN_RANGE_ATR = 2.0
-
-RB_RANGE_BARS = _env_int("RB_RANGE_BARS", 24)
-if RB_RANGE_BARS < 5:
-    RB_RANGE_BARS = 24
-RB_MIN_RANGE_ATR = _env_float("RB_MIN_RANGE_ATR", 2.0)
-if RB_MIN_RANGE_ATR < 0:
-    RB_MIN_RANGE_ATR = 2.0
-RB_BREAKOUT_BUFFER_ATR = _env_float("RB_BREAKOUT_BUFFER_ATR", 0.10)
-if RB_BREAKOUT_BUFFER_ATR < 0:
-    RB_BREAKOUT_BUFFER_ATR = 0.10
-RB_RETEST_TOL_ATR = _env_float("RB_RETEST_TOL_ATR", 0.15)
-if RB_RETEST_TOL_ATR < 0:
-    RB_RETEST_TOL_ATR = 0.15
-RB_CONFIRM_CLOSE_BUFFER_ATR = _env_float("RB_CONFIRM_CLOSE_BUFFER_ATR", 0.05)
-if RB_CONFIRM_CLOSE_BUFFER_ATR < 0:
-    RB_CONFIRM_CLOSE_BUFFER_ATR = 0.05
-
-FB_SWEEP_WICK_ATR = _env_float("FB_SWEEP_WICK_ATR", 0.10)
-if FB_SWEEP_WICK_ATR < 0:
-    FB_SWEEP_WICK_ATR = 0.10
-FB_CLOSE_BACK_INSIDE_BUFFER_ATR = _env_float("FB_CLOSE_BACK_INSIDE_BUFFER_ATR", 0.02)
-if FB_CLOSE_BACK_INSIDE_BUFFER_ATR < 0:
-    FB_CLOSE_BACK_INSIDE_BUFFER_ATR = 0.02
-FB_MIN_DIST_FROM_EMA200_PCT = _env_float("FB_MIN_DIST_FROM_EMA200_PCT", 0.2)
-if FB_MIN_DIST_FROM_EMA200_PCT < 0:
-    FB_MIN_DIST_FROM_EMA200_PCT = 0.2
-FB_MIN_CONFIDENCE = _env_float("FB_MIN_CONFIDENCE", 0.60)
-if FB_MIN_CONFIDENCE < 0:
-    FB_MIN_CONFIDENCE = 0.60
-
-TRAP_MIN_WICK_ATR = _env_float("TRAP_MIN_WICK_ATR", 0.8)
-if TRAP_MIN_WICK_ATR < 0:
-    TRAP_MIN_WICK_ATR = 0.8
-TRAP_CLOSE_BACK_ATR = _env_float("TRAP_CLOSE_BACK_ATR", 0.15)
-if TRAP_CLOSE_BACK_ATR < 0:
-    TRAP_CLOSE_BACK_ATR = 0.15
-
-BREAKOUT_BUFFER_ATR = _env_float("BREAKOUT_BUFFER_ATR", 0.10)
-if BREAKOUT_BUFFER_ATR < 0:
-    BREAKOUT_BUFFER_ATR = 0.10
-BREAKOUT_STRONG_BODY_PCT = _env_float("BREAKOUT_STRONG_BODY_PCT", 0.60)
-if BREAKOUT_STRONG_BODY_PCT < 0 or BREAKOUT_STRONG_BODY_PCT > 1:
-    BREAKOUT_STRONG_BODY_PCT = 0.60
-BREAKOUT_STRONG_MARKET = _env_bool("BREAKOUT_STRONG_MARKET", False)
-
-DEDUP_BARS = _env_int("DEDUP_BARS", 2)
-if DEDUP_BARS < 1:
-    DEDUP_BARS = 2
-
-EARLY_MIN_CONF = _env_float("EARLY_MIN_CONF", 0.35)
-if EARLY_MIN_CONF < 0:
-    EARLY_MIN_CONF = 0.35
-EARLY_ENABLED = _env_bool("EARLY_ENABLED", True)
-EARLY_TF = os.getenv("EARLY_TF", "5").strip() or "5"
-EARLY_LOOKBACK_5M = _env_int("EARLY_LOOKBACK_5M", 180)
-if EARLY_LOOKBACK_5M < 30:
-    EARLY_LOOKBACK_5M = 180
-EARLY_REQUIRE_15M_CONTEXT = _env_bool("EARLY_REQUIRE_15M_CONTEXT", True)
-EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M = _env_int("EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M", 1)
-if EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M < 1:
-    EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M = 1
-THRESHOLD_PROFILE = os.getenv("THRESHOLD_PROFILE", "A").strip().upper()
-if THRESHOLD_PROFILE not in {"A", "B", "C"}:
-    THRESHOLD_PROFILE = "A"
-
-# Strategy V1: strict gating, Setup A (RANGE_BREAKOUT_RETEST_GO) + Setup B (TRAP_FADE_ONLY_WITH_BIAS)
-STRATEGY_V1 = _env_bool("STRATEGY_V1", False)  # default OFF (V2 preferred)
-V1_SETUP_BREAKOUT = _env_bool("V1_SETUP_BREAKOUT", False)
-V1_SETUP_TRAP = _env_bool("V1_SETUP_TRAP", False)
-
-# Strategy V2: TREND_PULLBACK_EMA20
-V2_TREND_PULLBACK = _env_bool("V2_TREND_PULLBACK", True)
-
-# Strategy V3: TREND_CONTINUATION_BREAKOUT (V3_TREND_BREAKOUT)
-V3_TREND_BREAKOUT = _env_bool("V3_TREND_BREAKOUT", False)
-DONCHIAN_N_15M = _env_int("DONCHIAN_N_15M", 20)
-if DONCHIAN_N_15M < 1:
-    DONCHIAN_N_15M = 20
-BODY_ATR_15M = _env_float("BODY_ATR_15M", 0.25)
-if BODY_ATR_15M < 0:
-    BODY_ATR_15M = 0.25
-TREND_SEP_ATR_1H = _env_float("TREND_SEP_ATR_1H", 0.8)
-if TREND_SEP_ATR_1H < 0:
-    TREND_SEP_ATR_1H = 0.8
-USE_5M_CONFIRM = _env_bool("USE_5M_CONFIRM", True)
-PULLBACK_TOL_ATR = _env_float("PULLBACK_TOL_ATR", 0.10)
-if PULLBACK_TOL_ATR < 0:
-    PULLBACK_TOL_ATR = 0.10
-PULLBACK_SL_ATR_MULT = _env_float("PULLBACK_SL_ATR_MULT", 0.60)
-if PULLBACK_SL_ATR_MULT < 0:
-    PULLBACK_SL_ATR_MULT = 0.60
-PULLBACK_TP_R = _env_float("PULLBACK_TP_R", 1.5)
-if PULLBACK_TP_R < 0:
-    PULLBACK_TP_R = 1.5
-PULLBACK_REQUIRE_1H_EMA200_ALIGN = _env_bool("PULLBACK_REQUIRE_1H_EMA200_ALIGN", True)
-PULLBACK_REQUIRE_15M_EMA20_GT_EMA50 = _env_bool("PULLBACK_REQUIRE_15M_EMA20_GT_EMA50", True)
-PULLBACK_REQUIRE_BODY_CONFIRM = _env_bool("PULLBACK_REQUIRE_BODY_CONFIRM", True)
-TREND_MIN_SEP_ATR = _env_float("TREND_MIN_SEP_ATR", 0.35)
-if TREND_MIN_SEP_ATR < 0:
-    TREND_MIN_SEP_ATR = 0.35
-MOMO_CONFIRM_5M = _env_bool("MOMO_CONFIRM_5M", True)
-MOMO_MIN_BODY_ATR_5M = _env_float("MOMO_MIN_BODY_ATR_5M", 0.25)
-if MOMO_MIN_BODY_ATR_5M < 0:
-    MOMO_MIN_BODY_ATR_5M = 0.25
-MIN_ATR_PCT_15M = _env_float("MIN_ATR_PCT_15M", 0.2)
-MAX_ATR_PCT_15M = _env_float("MAX_ATR_PCT_15M", 3.0)
-REQUIRE_1H_EMA200_ALIGN = _env_bool("REQUIRE_1H_EMA200_ALIGN", False)
-ALIGN_SCORE_PENALTY = _env_float("ALIGN_SCORE_PENALTY", -1.0)
-REQUIRE_5M_EMA20_CONFIRM = _env_bool("REQUIRE_5M_EMA20_CONFIRM", False)
-REQUIRE_5M_EMA20_CONFIRM_FOR_TRAP = _env_bool("REQUIRE_5M_EMA20_CONFIRM_FOR_TRAP", False)
-MIN_SCORE = _env_float("MIN_SCORE", 0.0)
-MAX_ABS_DIST_PCT_4H = _env_float("MAX_ABS_DIST_PCT_4H", 10.0)
-if MAX_ABS_DIST_PCT_4H < 0:
-    MAX_ABS_DIST_PCT_4H = 10.0
-DIST_SCORE_PENALTY = _env_float("DIST_SCORE_PENALTY", -1.0)
-DIST_SKIP_PCT_4H = _env_float("DIST_SKIP_PCT_4H", 40.0)
-if DIST_SKIP_PCT_4H < 0:
-    DIST_SKIP_PCT_4H = 40.0
-RETEST_TOL_ATR = _env_float("RETEST_TOL_ATR", 0.10)
-if RETEST_TOL_ATR < 0:
-    RETEST_TOL_ATR = 0.10
-RETEST_CONFIRM_MODE = str(os.getenv("RETEST_CONFIRM_MODE", "bos")).strip().lower()
-if RETEST_CONFIRM_MODE not in ("none", "ema20", "bos"):
-    RETEST_CONFIRM_MODE = "bos"
-BOS_LOOKBACK_5M = _env_int("BOS_LOOKBACK_5M", 20)
-if BOS_LOOKBACK_5M < 1:
-    BOS_LOOKBACK_5M = 20
-REQUIRE_BREAKOUT_BODY_CONFIRM = _env_bool("REQUIRE_BREAKOUT_BODY_CONFIRM", True)
-EMA_PULLBACK_ENABLED = _env_bool("EMA_PULLBACK_ENABLED", True)
-EMA_PULLBACK_DEEP_TO_EMA50 = _env_bool("EMA_PULLBACK_DEEP_TO_EMA50", True)
-
-# RSI divergence (Strategy V1 add-on)
-PIVOT_LEFT = _env_int("PIVOT_LEFT", 2)
-PIVOT_RIGHT = _env_int("PIVOT_RIGHT", 2)
-DIVERGENCE_LOOKBACK_PIVOTS = _env_int("DIVERGENCE_LOOKBACK_PIVOTS", 5)
-DIVERGENCE_LOOKBACK_BARS = _env_int("DIVERGENCE_LOOKBACK_BARS", 120)
-DIVERGENCE_MIN_PRICE_DELTA_ATR = _env_float("DIVERGENCE_MIN_PRICE_DELTA_ATR", 0.3)
-DIVERGENCE_MIN_RSI_DELTA = _env_float("DIVERGENCE_MIN_RSI_DELTA", 3.0)
-DIVERGENCE_CONFIRM_MODE = os.getenv("DIVERGENCE_CONFIRM_MODE", "ema20").strip().lower()
-if DIVERGENCE_CONFIRM_MODE not in ("ema20", "break_structure"):
-    DIVERGENCE_CONFIRM_MODE = "ema20"
-
-DASHBOARD_HOST = os.getenv("DASHBOARD_HOST", "127.0.0.1").strip() or "127.0.0.1"
-DASHBOARD_PORT = _env_int("DASHBOARD_PORT", 8000)
-if DASHBOARD_PORT < 1 or DASHBOARD_PORT > 65535:
-    DASHBOARD_PORT = 8000
+DASHBOARD_HOST = _s.dashboard.host
+DASHBOARD_PORT = _s.dashboard.port
+DASHBOARD_TELEGRAM = _s.dashboard.telegram
+DASHBOARD_TOP_N = _s.dashboard.top_n
+DASHBOARD_INCLUDE_BLOCKED = _s.dashboard.include_blocked
+DASHBOARD_INCLUDE_MARKET_SNAPSHOT = _s.dashboard.include_market_snapshot
+DASHBOARD_INCLUDE_DEBUG_WHY_NONE = _s.dashboard.include_debug_why_none

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Callable, Optional, Tuple
 
 from storage import load_paper_state, save_paper_state
@@ -65,27 +66,36 @@ class RiskAutopilot:
         )
 
     def evaluate(self, intent: SignalIntent) -> Tuple[bool, str]:
+        from scalper.risk_engine_core import RiskEngine
+
         self._reload_state()
         self._active_intent = intent
         self._active_now = self._now_fn()
-        self._reset_daily_if_needed()
-
-        checks = (
-            self.is_kill_switch_on,
-            self.check_daily_trade_limit,
-            self.check_daily_loss_limit,
-            self.check_consecutive_losses_limit,
-            self.check_cooldown,
-            self.check_symbol_already_open,
-            self.check_max_open_positions,
+        engine = RiskEngine(self._state, self._settings_proxy(), __import__("storage"))
+        snapshot = {
+            "equity": float(getattr(self, "paper_equity_usdt", 0.0) or 0.0)
+            + float(self._state.get("daily_pnl_realized", self._state.get("daily_pnl_sim", 0.0)) or 0.0),
+            "open_positions": list(self._state.get("open_positions", []) or []),
+            "open_positions_count": len(
+                [
+                    p
+                    for p in (self._state.get("open_positions", []) or [])
+                    if isinstance(p, dict) and str(p.get("status", "OPEN")).upper() == "OPEN"
+                ]
+            ),
+        }
+        verdict = engine.evaluate(
+            {
+                "symbol": intent.symbol,
+                "setup": intent.strategy,
+                "direction": intent.side,
+                "strategy": intent.strategy,
+                "side": intent.side,
+                "ts": intent.ts,
+            },
+            snapshot=snapshot,
         )
-        for check in checks:
-            allowed, reason = check()
-            if not allowed:
-                save_paper_state(self._state)
-                return False, reason
-
-        return True, "allowed"
+        return bool(verdict.allowed), str(verdict.reason or "")
 
     def is_kill_switch_on(self) -> Tuple[bool, str]:
         if self.kill_switch_on:
@@ -177,29 +187,25 @@ class RiskAutopilot:
         return True, "ok"
 
     def record_allowed_intent(self, intent: SignalIntent) -> None:
+        # assess(...) already consumes daily trade budget in RiskEngine.
         self._reload_state()
-        self._active_now = self._now_fn()
-        self._reset_daily_if_needed()
-        self._mark_allowed_intent()
-        save_paper_state(self._state)
 
     def record_paper_close(self, pnl_usdt: float) -> None:
+        from scalper.models import TradeRecord
+        from scalper.risk_engine_core import RiskEngine
+
         self._reload_state()
-        self._active_now = self._now_fn()
-        self._reset_daily_if_needed()
-        pnl_value = float(pnl_usdt)
-        self._state["daily_pnl_sim"] = float(self._state.get("daily_pnl_sim", 0.0)) + pnl_value
-        if pnl_value < 0:
-            self._state["consecutive_losses"] = int(
-                self._state.get("consecutive_losses", 0)
-            ) + 1
-            if self.cooldown_minutes > 0:
-                now_utc = self._active_now or self._now_fn()
-                cooldown_until = now_utc + timedelta(minutes=self.cooldown_minutes)
-                self._state["cooldown_until_utc"] = cooldown_until.isoformat()
-        else:
-            self._state["consecutive_losses"] = 0
-        save_paper_state(self._state)
+        engine = RiskEngine(self._state, self._settings_proxy(), __import__("storage"))
+        engine.on_fill(
+            TradeRecord(
+                symbol="",
+                side="",
+                setup="",
+                close_ts=self._now_fn().isoformat(),
+                pnl_usdt=float(pnl_usdt or 0.0),
+                close_reason="paper_close",
+            )
+        )
 
     def record_trade_outcome(self, outcome) -> None:
         if isinstance(outcome, dict):
@@ -234,3 +240,25 @@ class RiskAutopilot:
 
     def _reload_state(self) -> None:
         self._state = load_paper_state()
+
+    def _settings_proxy(self):
+        return SimpleNamespace(
+            kill_switch=bool(self.kill_switch_on),
+            risk_max_trades_per_day=int(self.max_trades_per_day),
+            risk_max_daily_loss_sim=float(self.max_daily_loss_sim),
+            risk_max_consecutive_losses=int(self.max_consecutive_losses),
+            risk_cooldown_minutes=int(self.cooldown_minutes),
+            daily_loss_limit_pct=1.0,
+            max_dd_pct=12.0,
+            max_trades_day=int(self.max_trades_per_day),
+            min_seconds_between_trades=180,
+            min_seconds_between_symbol_trades=900,
+            max_symbol_notional_pct=30.0,
+            cluster_btc_eth_limit=1,
+            fail_closed_on_snapshot_missing=True,
+            paper_equity_usdt=float(getattr(self, "paper_equity_usdt", 200.0) or 200.0),
+            max_open_positions=int(self.max_open_positions),
+            max_concurrent_positions=int(self.max_open_positions),
+            risk_one_position_per_symbol=bool(self.one_position_per_symbol),
+            position_mode="per_symbol" if self.one_position_per_symbol else "global",
+        )

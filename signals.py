@@ -2375,3 +2375,49 @@ def build_reconcile_report(
                 f"C={_fmt_num(float(c.get('close', 0.0)))}"
             )
     return "\n".join(lines)
+
+
+def evaluate_symbol_intents_with_plugins(
+    symbol: str,
+    *,
+    candles_15m: List[Dict[str, float]],
+    candles_5m: Optional[List[Dict[str, float]]],
+    mtf_snapshot: Dict[int, Dict[str, Any]],
+    bias_info: Dict[str, Any],
+    signal_debug: bool = False,
+    timeframe: str = "15",
+    bar_ts_used: str = "",
+) -> Dict[str, object]:
+    """
+    Thin compatibility wrapper for plugin architecture.
+    Returns legacy evaluate_* dict shape for existing consumers.
+    """
+    from scalper.settings import get_settings
+    from scalper.strategies import (
+        evaluate_enabled_first,
+        load_enabled_strategies,
+        strategy_result_to_evaluated,
+    )
+
+    settings = get_settings()
+    strategies = load_enabled_strategies(settings)
+    ctx: Dict[str, Any] = {
+        "candles_15m": candles_15m or [],
+        "candles_5m": candles_5m or [],
+        "mtf_snapshot": mtf_snapshot or {},
+        "bias_info": bias_info or {},
+        "bar_ts_used": str(bar_ts_used or ""),
+        "signal_debug": bool(signal_debug),
+        "timeframe": str(timeframe or "15"),
+        "v3_params": {
+            "DONCHIAN_N_15M": settings.strategy_v3.donchian_n_15m,
+            "BODY_ATR_15M": settings.strategy_v3.body_atr_15m,
+            "TREND_SEP_ATR_1H": settings.strategy_v3.trend_sep_atr_1h,
+            "USE_5M_CONFIRM": settings.strategy_v3.use_5m_confirm,
+        },
+        "i15": max(0, len(candles_15m or []) - 1),
+        "sl_atr_mult": float(_get_config_float("PULLBACK_SL_ATR_MULT", 0.60)),
+        "tp_r": float(_get_config_float("PAPER_TP_ATR", 1.5)),
+    }
+    result = evaluate_enabled_first(symbol=symbol, context=ctx, strategies=strategies)
+    return strategy_result_to_evaluated(result)

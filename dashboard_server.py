@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
 
-import config
+from scalper.settings import _ENV_BOOTSTRAP_STATE, get_settings
 from storage import (
     compute_paper_kpis,
     get_block_stats_last_24h,
@@ -27,6 +27,8 @@ from storage import (
 )
 
 VERSION = "dry-run-dashboard-1.1"
+settings = get_settings()
+_STARTED_AT = time.time()
 
 
 def _env_int(name: str, default: int) -> int:
@@ -102,36 +104,74 @@ def _summary_payload() -> Dict[str, Any]:
         try:
             from watchlist import get_watchlist
 
-            watchlist_symbols, watchlist_mode = get_watchlist(config, bybit_client=None, logger=None)
+            import config as legacy_config
+
+            watchlist_symbols, watchlist_mode = get_watchlist(legacy_config, bybit_client=None, logger=None)
         except Exception:
-            watchlist_symbols = list(getattr(config, "WATCHLIST", []) or [])
-            watchlist_mode = str(getattr(config, "WATCHLIST_MODE", "static")).strip().lower()
+            watchlist_symbols = list(settings.risk.watchlist or [])
+            watchlist_mode = str(settings.risk.watchlist_mode).strip().lower()
     trans = get_watchlist_transparency()
     selected_from_trans = trans.get("selected_symbols") or []
+    selected_symbols = selected_from_trans if selected_from_trans else watchlist_symbols
+    bias_rows = get_last_bias_json() or []
+    bias_by_symbol = {
+        str(item.get("symbol", "") or "").upper(): item
+        for item in bias_rows
+        if isinstance(item, dict) and str(item.get("symbol", "")).strip()
+    }
+    symbols_v3 = get_symbols_v3() or {}
+    per_symbol: List[Dict[str, Any]] = []
+    for sym in selected_symbols:
+        symbol = str(sym or "").upper()
+        bias_info = bias_by_symbol.get(symbol, {})
+        v3_wrap = symbols_v3.get(symbol, {}) if isinstance(symbols_v3, dict) else {}
+        v3 = (v3_wrap.get("v3", {}) if isinstance(v3_wrap, dict) else {}) or {}
+        v3_status = {
+            "ok": bool(v3.get("ok", False)),
+            "side": v3.get("side"),
+            "reason": str(v3.get("reason", "") or ""),
+            "breakout_level": v3.get("breakout_level"),
+        }
+        skip_reasons: List[str] = []
+        bias_reason = str(bias_info.get("reason", "") or "")
+        if bias_reason:
+            skip_reasons.append(bias_reason)
+        if v3_status["reason"] and not v3_status["ok"]:
+            skip_reasons.append(v3_status["reason"])
+        per_symbol.append(
+            {
+                "symbol": symbol,
+                "bias": str(bias_info.get("bias", "") or ""),
+                "v3": v3_status,
+                "skip_reasons": skip_reasons,
+            }
+        )
     return {
         "last_scan_ts": _format_ts_human(last_scan_ts),
-        "scan_seconds": int(getattr(config, "SCAN_SECONDS", 60)),
+        "scan_seconds": int(settings.risk.scan_seconds),
         "watchlist_count": len(watchlist_symbols),
         "watchlist_mode": watchlist_mode,
         "watchlist_source": trans.get("watchlist_source", "static"),
         "watchlist_updated_ts": _format_ts_human(trans.get("watchlist_updated_ts")) if trans.get("watchlist_updated_ts") else "-",
         "watchlist_cached_until_ts": _format_ts_human(trans.get("watchlist_cached_until_ts")) if trans.get("watchlist_cached_until_ts") else "-",
         "watchlist_candidates_count": trans.get("watchlist_candidates_count"),
+        "watchlist": selected_symbols,
         "watchlist_symbols": watchlist_symbols,
-        "selected_symbols": selected_from_trans if selected_from_trans else watchlist_symbols,
+        "selected_symbols": selected_symbols,
         "signals_last_24h": int(signals_last_24h),
         "pnl_today": float(state.get("daily_pnl_sim", 0.0) or 0.0),
         "open_positions_count": len(open_positions),
         "wins_today": wins_today,
         "losses_today": losses_today,
         "open_positions": open_positions_rows,
-        "bias": (get_last_bias_json() or [])[:10],
-        "symbols": get_symbols_v3(),
+        "bias": bias_rows[:10],
+        "symbols": symbols_v3,
+        "per_symbol": per_symbol,
         "near_misses": get_near_misses(),
         "block_stats": get_block_stats_last_24h(),
         "kpi": compute_paper_kpis(
             list(state.get("closed_trades", []) or []),
-            paper_equity_usdt=float(config.PAPER_EQUITY_USDT),
+            paper_equity_usdt=float(settings.risk.paper_equity_usdt),
         ),
     }
 
@@ -163,12 +203,8 @@ def _risk_payload() -> Dict[str, Any]:
     state = load_paper_state()
     open_positions = list(state.get("open_positions", []) or [])
     open_position_simulated = len(open_positions) > 0
-    position_mode = str(
-        getattr(config, "POSITION_MODE", "global") or "global"
-    ).lower().strip()
-    max_concurrent_positions = max(
-        0, int(getattr(config, "MAX_CONCURRENT_POSITIONS", 1))
-    )
+    position_mode = str(settings.risk.position_mode or "global").lower().strip()
+    max_concurrent_positions = max(0, int(settings.risk.max_concurrent_positions))
     return {
         "kill_switch": bool(_env_int("KILL_SWITCH", 0)),
         "max_trades_day": _env_int("MAX_TRADES_DAY", 999),
@@ -183,17 +219,28 @@ def _risk_payload() -> Dict[str, Any]:
 
 def _health_payload() -> Dict[str, Any]:
     last_scan_ts = get_last_scan_ts()
+    uptime_s = max(0.0, time.time() - _STARTED_AT)
     try:
         _ = load_paper_state()
         storage_ok = True
     except Exception:
         storage_ok = False
-    env_state = getattr(config, "_ENV_BOOTSTRAP_STATE", {})
+    bybit_latency_ms = None
+    try:
+        from bybit import get_last_api_latency_ms
+
+        bybit_latency_ms = get_last_api_latency_ms()
+    except Exception:
+        bybit_latency_ms = None
+    env_state = _ENV_BOOTSTRAP_STATE
     return {
         "ok": True,
+        "uptime": int(uptime_s),
         "last_scan_ts": _format_ts_human(last_scan_ts),
+        "last_scan_ts_epoch": int(last_scan_ts) if last_scan_ts is not None else None,
+        "bybit_latency_ms": bybit_latency_ms,
         "storage_ok": storage_ok,
-        "telegram_config_ok": bool(config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID),
+        "telegram_config_ok": bool(settings.telegram.bot_token and settings.telegram.chat_id),
         "dotenv_loaded": bool(env_state.get("dotenv_loaded", False)),
         "version": VERSION,
     }
@@ -221,7 +268,7 @@ def _index_html() -> str:
 </head>
 <body>
   <h1>Scalper Bot Dashboard (DRY RUN)</h1>
-  <div class="muted">Auto-refresh: every 2 seconds</div>
+  <div class="muted">Auto-refresh: every 5 minutes</div>
 
   <h2>Summary</h2>
   <div class="grid">
@@ -621,7 +668,7 @@ def _index_html() -> str:
     }
 
     refresh();
-    setInterval(refresh, 5 * 60 * 1000); // 5 min
+    setInterval(refresh, 300000); // 5 min
   </script>
 </body>
 </html>
@@ -692,7 +739,7 @@ def run_dashboard_server(host: str, port: int, log_level: str = "info") -> None:
 
 if __name__ == "__main__":
     run_dashboard_server(
-        host=getattr(config, "DASHBOARD_HOST", "127.0.0.1"),
-        port=int(getattr(config, "DASHBOARD_PORT", 8000)),
+        host=settings.dashboard.host,
+        port=int(settings.dashboard.port),
         log_level="info",
     )

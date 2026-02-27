@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
 
+from scalper.models import StrategyResult, ensure_strategy_result
 
 # TF key variants: "4H"/"1H"/"15m"/"5m" OR 240/60/15/5 OR "240m"/"60m"/"15m"/"5m"
 _TF_ALIASES: Dict[str, List[Union[str, int]]] = {
@@ -99,20 +100,16 @@ def v3_tcb_evaluate(
     *,
     map15_to_5: Optional[List[int]] = None,
     close5: Optional[List[float]] = None,
-) -> Dict[str, Any]:
+) -> StrategyResult:
     """
     V3 Trend-Continuation Breakout evaluation.
 
-    Returns:
-        {
-            "ok": bool,
-            "side": "LONG"|"SHORT"|None,
-            "breakout_level": float|None,
-            "reason": str,
-            "debug": {...}
-        }
+    Returns StrategyResult.
     """
     debug: Dict[str, Any] = {"symbol": symbol, "i15": i15}
+
+    def _ret(payload: Dict[str, Any]) -> StrategyResult:
+        return ensure_strategy_result(payload)
     donchian_n = int(params.get("DONCHIAN_N_15M", 20))
     body_atr_min = float(params.get("BODY_ATR_15M", 0.25))
     trend_sep_atr_1h = float(params.get("TREND_SEP_ATR_1H", 0.8))
@@ -120,24 +117,24 @@ def v3_tcb_evaluate(
 
     snap_4h = _resolve_tf(snapshot_symbol, "4h")
     if not snap_4h:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_missing_4h_slope_inputs",
             "debug": {**debug, "snap_4h": "missing"},
-        }
+        })
     close_4h = float(snap_4h.get("close", 0) or 0)
     ema200_4h = float(snap_4h.get("ema200", 0) or 0)
     slope10 = snap_4h.get("ema200_slope_10")
     if slope10 is None:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_missing_4h_slope_inputs",
             "debug": {**debug, "slope10": None},
-        }
+        })
     slope10 = float(slope10)
 
     if close_4h > ema200_4h and slope10 > 0:
@@ -145,35 +142,35 @@ def v3_tcb_evaluate(
     elif close_4h < ema200_4h and slope10 < 0:
         bias = "SHORT"
     else:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_bias_none",
             "debug": {**debug, "close_4h": close_4h, "ema200_4h": ema200_4h, "slope10": slope10},
-        }
+        })
 
     snap_1h = _resolve_tf(snapshot_symbol, "1h")
     if not snap_1h:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_missing_1h_inputs",
             "debug": {**debug, "bias": bias},
-        }
+        })
     ema20_1h = float(snap_1h.get("ema20", 0) or 0)
     ema50_1h = float(snap_1h.get("ema50", 0) or 0)
     ema200_1h = float(snap_1h.get("ema200", 0) or 0)
     atr_1h = float(snap_1h.get("atr14", 0) or 0)
     if atr_1h <= 0:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_missing_1h_inputs",
             "debug": {**debug, "bias": bias, "atr_1h": atr_1h},
-        }
+        })
 
     if bias == "LONG":
         trend_ok = ema20_1h > ema50_1h > ema200_1h
@@ -183,38 +180,38 @@ def v3_tcb_evaluate(
         sep = (ema200_1h - ema20_1h) / atr_1h if trend_ok else 0.0
 
     if not trend_ok:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_trend_align_fail",
             "debug": {**debug, "bias": bias, "ema20_1h": ema20_1h, "ema50_1h": ema50_1h, "ema200_1h": ema200_1h},
-        }
+        })
     if sep < trend_sep_atr_1h:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_sep_fail",
             "debug": {**debug, "bias": bias, "sep": sep, "trend_sep_atr_1h": trend_sep_atr_1h},
-        }
+        })
 
     if not candles_15m or i15 >= len(candles_15m):
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_not_enough_15m_bars",
             "debug": {**debug, "len_15m": len(candles_15m or []), "i15": i15},
-        }
+        })
     if i15 < donchian_n:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_not_enough_15m_bars",
             "debug": {**debug, "i15": i15, "donchian_n": donchian_n},
-        }
+        })
 
     try:
         highs = [float(c.get("high", 0) or 0) for c in candles_15m[: i15 + 1]]
@@ -222,23 +219,23 @@ def v3_tcb_evaluate(
         closes = [float(c.get("close", 0) or 0) for c in candles_15m[: i15 + 1]]
         opens = [float(c.get("open", 0) or 0) for c in candles_15m[: i15 + 1]]
     except (TypeError, ValueError, KeyError):
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_not_enough_15m_bars",
             "debug": {**debug},
-        }
+        })
 
     atr_list = _atr14(highs, lows, closes, 14)
     if atr_list[i15] is None:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_not_enough_15m_bars",
             "debug": {**debug, "atr_not_ready": True},
-        }
+        })
     atr15m = float(atr_list[i15])
     close_15m = closes[i15]
     open_15m = opens[i15]
@@ -255,70 +252,70 @@ def v3_tcb_evaluate(
         broken = close_15m < donch_low
 
     if not broken:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_donchian_not_broken",
             "debug": {**debug, "bias": bias, "close_15m": close_15m, "donch_high": donch_high, "donch_low": donch_low},
-        }
+        })
 
     body_min = body_atr_min * atr15m
     if body < body_min:
-        return {
+        return _ret({
             "ok": False,
             "side": None,
             "breakout_level": None,
             "reason": "v3_body_too_small",
             "debug": {**debug, "bias": bias, "body": body, "body_min": body_min},
-        }
+        })
 
     if use_5m_confirm:
         if map15_to_5 is not None and close5 is not None:
             j5 = map15_to_5[i15] if i15 < len(map15_to_5) else -1
             if j5 < 0 or j5 >= len(close5):
-                return {
+                return _ret({
                     "ok": False,
                     "side": None,
                     "breakout_level": None,
                     "reason": "v3_missing_5m",
                     "debug": {**debug, "bias": bias, "ts_15m_ms": ts_15m_ms},
-                }
+                })
             close_5m = close5[j5]
         elif candles_5m:
             map15_to_5_local = _build_15m_to_5m_index(candles_15m, candles_5m)
             j5 = map15_to_5_local[i15]
             if j5 < 0 or j5 >= len(candles_5m) or _candle_ts_ms(candles_5m[j5]) > ts_15m_ms:
-                return {
+                return _ret({
                     "ok": False,
                     "side": None,
                     "breakout_level": None,
                     "reason": "v3_missing_5m",
                     "debug": {**debug, "bias": bias, "ts_15m_ms": ts_15m_ms},
-                }
+                })
             close_5m = float(candles_5m[j5].get("close", 0) or 0)
         else:
-            return {
+            return _ret({
                 "ok": False,
                 "side": None,
                 "breakout_level": None,
                 "reason": "v3_missing_5m",
                 "debug": {**debug, "bias": bias},
-            }
+            })
         if bias == "LONG":
             confirm_ok = close_5m > breakout_level
         else:
             confirm_ok = close_5m < breakout_level
         if not confirm_ok:
-            return {
+            return _ret({
                 "ok": False,
                 "side": None,
                 "breakout_level": None,
                 "reason": "v3_5m_confirm_fail",
                 "debug": {**debug, "bias": bias, "close_5m": close_5m, "breakout_level": breakout_level},
-            }
+            })
 
-    return {
+    return _ret({
         "ok": True,
         "side": bias,
         "breakout_level": breakout_level,
@@ -331,4 +328,4 @@ def v3_tcb_evaluate(
             "donch_low": donch_low,
             "atr15m": atr15m,
         },
-    }
+    })

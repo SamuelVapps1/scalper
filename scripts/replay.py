@@ -22,11 +22,10 @@ _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root))
 sys.path.insert(1, str(_project_root / "scripts"))
 
-# Load config (dotenv) same as bot - must run before other project imports
-import config as _config
+from scalper.settings import get_settings
 
-from bybit import _pace_before_request, _to_bybit_interval
-from indicators import atr_wilder, ema
+from indicators_engine import candle_ts_ms, precompute_tf_indicators
+from mtf_engine import build_snapshot_at_trigger, build_ts_index_map
 from mtf import compute_4h_bias
 
 import candle_cache
@@ -43,16 +42,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 _log = logging.getLogger(__name__)
 
 def _candle_ts_ms(c: Dict[str, Any]) -> int:
-    ts = c.get("timestamp") or c.get("timestamp_utc")
-    if isinstance(ts, (int, float)):
-        return int(ts) if ts >= 1e12 else int(ts * 1000)
-    if isinstance(ts, str):
-        try:
-            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            return int(dt.timestamp() * 1000)
-        except ValueError:
-            pass
-    return 0
+    return candle_ts_ms(c)
 
 
 def fetch_klines_range(
@@ -166,83 +156,6 @@ def _build_closed_trade(
     return out
 
 
-def _build_tf_indicators(candles: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
-    ts_list = [_candle_ts_ms(c) for c in candles]
-    open_list = [float(c.get("open", 0) or 0) for c in candles]
-    close_list = [float(c.get("close", 0) or 0) for c in candles]
-    high_list = [float(c.get("high", 0) or 0) for c in candles]
-    low_list = [float(c.get("low", 0) or 0) for c in candles]
-    return {
-        "ts": ts_list,
-        "open": open_list,
-        "close": close_list,
-        "high": high_list,
-        "low": low_list,
-        "ema20": ema(close_list, 20),
-        "ema50": ema(close_list, 50),
-        "ema200": ema(close_list, 200),
-        "atr14": atr_wilder(high_list, low_list, close_list, 14),
-    }
-
-
-def _build_ts_index_map(trigger_ts: List[int], target_ts: List[int]) -> List[int]:
-    """Map each trigger ts to last target index with target_ts[idx] <= trigger_ts[i]."""
-    if not trigger_ts:
-        return []
-    if not target_ts:
-        return [-1] * len(trigger_ts)
-    out = [-1] * len(trigger_ts)
-    j = 0
-    for i in range(len(trigger_ts)):
-        while j + 1 < len(target_ts) and target_ts[j + 1] <= trigger_ts[i]:
-            j += 1
-        out[i] = j if target_ts[j] <= trigger_ts[i] else -1
-    return out
-
-
-def build_mtf_snapshot_at_ts(
-    ind_by_tf: Dict[int, Dict[str, List[Any]]],
-    trigger_to_tf_index: Dict[int, List[int]],
-    trigger_idx: int,
-    tfs: List[int],
-) -> Dict[int, Dict[str, Any]]:
-    """Build MTF snapshot from precomputed indicators at trigger index."""
-    snapshot: Dict[int, Dict[str, Any]] = {}
-    for tf_min in tfs:
-        ind = ind_by_tf.get(tf_min)
-        idx_map = trigger_to_tf_index.get(tf_min)
-        if not ind or not idx_map or trigger_idx >= len(idx_map):
-            continue
-        i_tf = idx_map[trigger_idx]
-        if i_tf < 0:
-            continue
-        ts_list = ind["ts"]
-        if i_tf >= len(ts_list):
-            continue
-        ema20_v = ind["ema20"][i_tf]
-        ema50_v = ind["ema50"][i_tf]
-        ema200_v = ind["ema200"][i_tf]
-        atr14_v = ind["atr14"][i_tf]
-        ema200_prev10 = ind["ema200"][i_tf - 10] if i_tf >= 10 else None
-        snapshot[tf_min] = {
-            "ema20": float(ema20_v) if ema20_v is not None else 0.0,
-            "ema50": float(ema50_v) if ema50_v is not None else 0.0,
-            "ema200": float(ema200_v) if ema200_v is not None else 0.0,
-            "ema200_slope_10": (
-                float(ema200_v) - float(ema200_prev10)
-                if ema200_v is not None and ema200_prev10 is not None
-                else None
-            ),
-            "atr14": float(atr14_v) if atr14_v is not None else 0.0,
-            "open": float(ind["open"][i_tf]),
-            "close": float(ind["close"][i_tf]),
-            "high": float(ind["high"][i_tf]),
-            "low": float(ind["low"][i_tf]),
-            "ts": datetime.fromtimestamp(ts_list[i_tf] / 1000.0, tz=timezone.utc).isoformat(),
-        }
-    return snapshot
-
-
 def run_replay(
     symbols: List[str],
     days: int,
@@ -260,7 +173,10 @@ def run_replay(
     end_days_ago: Optional[int] = None,
     start_days_ago: Optional[int] = None,
 ) -> Dict[str, Any]:
-    import config as _config
+    settings = get_settings()
+    risk = settings.risk
+    strat = settings.strategy_v3
+    replay_cfg = settings.replay
 
     now_dt = datetime.now(timezone.utc)
     if start_days_ago is not None and end_days_ago is not None:
@@ -284,23 +200,23 @@ def run_replay(
         tf_timing: max(400, days * 24 * 12 + 100),
     }
 
-    tp_r = getattr(_config, "PAPER_TP_ATR", 1.5)
-    sl_atr_mult = getattr(_config, "PAPER_SL_ATR", 1.0)
-    tol_atr = getattr(_config, "PULLBACK_TOL_ATR", 0.10)
-    trend_min_sep = getattr(_config, "TREND_MIN_SEP_ATR", 0.35)
-    momo_min_body = getattr(_config, "MOMO_MIN_BODY_ATR_5M", 0.25)
-    be_at_r = getattr(_config, "BE_AT_R", 1.0)
-    partial_tp_at_r = getattr(_config, "PARTIAL_TP_AT_R", 0.0)
-    trail_after_r = getattr(_config, "TRAIL_AFTER_R", 0.0)
-    v2 = getattr(_config, "V2_TREND_PULLBACK", True)
-    v1 = getattr(_config, "STRATEGY_V1", False)
-    v1_brk = getattr(_config, "V1_SETUP_BREAKOUT", False)
-    v1_trap = getattr(_config, "V1_SETUP_TRAP", False)
-    v3 = getattr(_config, "V3_TREND_BREAKOUT", False)
-    donchian_n = getattr(_config, "DONCHIAN_N_15M", 20)
-    body_atr_15m = getattr(_config, "BODY_ATR_15M", 0.25)
-    trend_sep_atr_1h = getattr(_config, "TREND_SEP_ATR_1H", 0.8)
-    use_5m_confirm = getattr(_config, "USE_5M_CONFIRM", True)
+    tp_r = risk.paper_tp_atr
+    sl_atr_mult = risk.paper_sl_atr
+    tol_atr = strat.pullback_tol_atr
+    trend_min_sep = strat.trend_min_sep_atr
+    momo_min_body = strat.momo_min_body_atr_5m
+    be_at_r = replay_cfg.be_at_r
+    partial_tp_at_r = replay_cfg.partial_tp_at_r
+    trail_after_r = replay_cfg.trail_after_r
+    v2 = strat.v2_trend_pullback
+    v1 = strat.strategy_v1
+    v1_brk = strat.v1_setup_breakout
+    v1_trap = strat.v1_setup_trap
+    v3 = strat.v3_trend_breakout
+    donchian_n = strat.donchian_n_15m
+    body_atr_15m = strat.body_atr_15m
+    trend_sep_atr_1h = strat.trend_sep_atr_1h
+    use_5m_confirm = strat.use_5m_confirm
 
     range_info = (
         {"start_days_ago": start_days_ago, "end_days_ago": end_days_ago}
@@ -358,20 +274,20 @@ def run_replay(
             RUN_SIGNATURE["setup_flags"]["STRATEGY_V1"],
             RUN_SIGNATURE["setup_flags"]["V1_SETUP_BREAKOUT"],
             RUN_SIGNATURE["setup_flags"]["V1_SETUP_TRAP"],
-            getattr(_config, "RETEST_CONFIRM_MODE", "bos"),
-            getattr(_config, "BOS_LOOKBACK_5M", 20),
-            getattr(_config, "BREAKOUT_STRONG_MARKET", False),
-            getattr(_config, "BREAKOUT_STRONG_BODY_PCT", 0.60),
-            getattr(_config, "BREAKOUT_BUFFER_ATR", 0.10),
+            strat.retest_confirm_mode,
+            strat.bos_lookback_5m,
+            strat.breakout_strong_market,
+            strat.breakout_strong_body_pct,
+            strat.breakout_buffer_atr,
         )
         _log.info(
             "TRAP_MIN_WICK_ATR=%s REQUIRE_1H_EMA200_ALIGN=%s REQUIRE_5M_EMA20_CONFIRM=%s "
             "MIN_ATR_PCT_15M=%s MAX_ATR_PCT_15M=%s",
-            getattr(_config, "TRAP_MIN_WICK_ATR", 0.8),
-            getattr(_config, "REQUIRE_1H_EMA200_ALIGN", False),
-            getattr(_config, "REQUIRE_5M_EMA20_CONFIRM", False),
-            getattr(_config, "MIN_ATR_PCT_15M", 0.2),
-            getattr(_config, "MAX_ATR_PCT_15M", 3.0),
+            strat.trap_min_wick_atr,
+            strat.require_1h_ema200_align,
+            strat.require_5m_ema20_confirm,
+            strat.min_atr_pct_15m,
+            strat.max_atr_pct_15m,
         )
         _log.info("")
 
@@ -429,9 +345,9 @@ def run_replay(
         trigger_to_tf_by_symbol[sym] = {}
         for tf_min in tfs:
             candles_tf = candles_by_symbol_tf[sym][tf_min]
-            ind = _build_tf_indicators(candles_tf)
+            ind = precompute_tf_indicators(candles_tf)
             ind_by_symbol_tf[sym][tf_min] = ind
-            trigger_to_tf_by_symbol[sym][tf_min] = _build_ts_index_map(bars_15m_ts, ind["ts"])
+            trigger_to_tf_by_symbol[sym][tf_min] = build_ts_index_map(bars_15m_ts, ind["ts"])
 
     compute_indicators_s = time.perf_counter() - t_after_load
     t_precompute_start = time.perf_counter()
@@ -439,9 +355,9 @@ def run_replay(
         _log.info("Walking %d trigger bars (step=%d)", len(bars_15m), step_bars)
 
     closed_trades: List[Dict[str, Any]] = []
-    paper_equity = float(getattr(_config, "PAPER_EQUITY_USDT", 200.0))
-    timeout_bars = int(getattr(_config, "PAPER_TIMEOUT_BARS", 12))
-    fees_bps = float(getattr(_config, "PAPER_FEES_BPS", 6.0))
+    paper_equity = float(risk.paper_equity_usdt)
+    timeout_bars = int(risk.paper_timeout_bars)
+    fees_bps = float(risk.paper_fees_bps)
 
     skip_reasons = (
         "bias_none",
@@ -478,10 +394,10 @@ def run_replay(
     risk_invalid_count = 0
 
     v3_params_dict = {
-        "DONCHIAN_N_15M": getattr(_config, "DONCHIAN_N_15M", 20),
-        "BODY_ATR_15M": getattr(_config, "BODY_ATR_15M", 0.25),
-        "TREND_SEP_ATR_1H": getattr(_config, "TREND_SEP_ATR_1H", 0.8),
-        "USE_5M_CONFIRM": getattr(_config, "USE_5M_CONFIRM", True),
+        "DONCHIAN_N_15M": strat.donchian_n_15m,
+        "BODY_ATR_15M": strat.body_atr_15m,
+        "TREND_SEP_ATR_1H": strat.trend_sep_atr_1h,
+        "USE_5M_CONFIRM": strat.use_5m_confirm,
     }
 
     v3_map15_to_5: Dict[str, List[int]] = {}
@@ -500,7 +416,7 @@ def run_replay(
         bar_ts_ms = _candle_ts_ms(bar)
         bar_ts_utc = bar.get("timestamp_utc", "")
 
-        progress_every = getattr(_config, "REPLAY_PROGRESS_EVERY", 0)
+        progress_every = replay_cfg.replay_progress_every
         if progress_every > 0 and i % progress_every == 0:
             elapsed_s = time.perf_counter() - t_walk_start
             steps_per_s = i / elapsed_s if elapsed_s > 0 else 0.0
@@ -516,7 +432,7 @@ def run_replay(
                 continue
             c15_up_to = c15_sym[: trigger_idx_15m + 1]
 
-            mtf = build_mtf_snapshot_at_ts(
+            mtf = build_snapshot_at_trigger(
                 ind_by_symbol_tf[symbol],
                 trigger_to_tf_by_symbol[symbol],
                 step,
@@ -529,9 +445,9 @@ def run_replay(
                 skip_by_symbol[symbol]["bias_none"] += 1
                 continue
 
-            v2_trend_pullback = getattr(_config, "V2_TREND_PULLBACK", True)
-            strategy_v1 = getattr(_config, "STRATEGY_V1", False)
-            v3_trend_breakout = getattr(_config, "V3_TREND_BREAKOUT", False)
+            v2_trend_pullback = strat.v2_trend_pullback
+            strategy_v1 = strat.strategy_v1
+            v3_trend_breakout = strat.v3_trend_breakout
             if v3_trend_breakout and (bias_info.get("bias") or "NONE") in ("LONG", "SHORT"):
                 i15 = trigger_idx_15m
                 result = v3_tcb_evaluate(
@@ -610,7 +526,7 @@ def run_replay(
             intent = intents[0]
             if intent.get("strategy") == "V3_TREND_BREAKOUT":
                 v3_triggers_total += 1
-                if getattr(_config, "LOG_V3_TRIGGERS", False):
+                if strat.log_v3_triggers:
                     _log.info(
                         "V3_TRIGGER %s %s close=%.4f level=%.4f bar_ts=%s",
                         symbol,
@@ -657,7 +573,7 @@ def run_replay(
                 risk_usdt_open = 0.0
             entry_ts_ms = _candle_ts_ms({"timestamp_utc": pos.entry_ts})
             c5_after = [c for c in c5 if _candle_ts_ms(c) > entry_ts_ms]
-            replay_strict = getattr(_config, "REPLAY_EXIT_MODE", "hard") == "hard"
+            replay_strict = replay_cfg.replay_exit_mode == "hard"
             for c in c5_after:
                 updated, closed, pnl, reason, partial_trade = update_and_maybe_close(
                     pos, c, fees_bps, timeout_bars, replay_strict_exit=replay_strict
@@ -800,7 +716,7 @@ def run_replay(
         _log.info("Exported CSV: %s", csv_path)
 
     exit_reason_counts: Dict[str, int] = {}
-    replay_strict = getattr(_config, "REPLAY_EXIT_MODE", "hard") == "hard"
+    replay_strict = replay_cfg.replay_exit_mode == "hard"
     allowed_reasons = frozenset(("SL", "TP", "END_OF_DATA")) if replay_strict else None
     for t in closed_trades:
         reason = str(t.get("close_reason", "") or "").strip() or "unknown"
@@ -810,7 +726,7 @@ def run_replay(
 
     # Ensure diagnostic sections used by walk-forward are always present (even if empty)
     by_setup_out = dict(by_setup or {})
-    if getattr(_config, "V3_TREND_BREAKOUT", False) and "V3_TREND_BREAKOUT" not in by_setup_out:
+    if strat.v3_trend_breakout and "V3_TREND_BREAKOUT" not in by_setup_out:
         by_setup_out["V3_TREND_BREAKOUT"] = {
             "trades_total": 0,
             "wins": 0,

@@ -11,20 +11,22 @@ from __future__ import annotations
 import csv
 import logging
 import math
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-try:
-    import config as _config
-except ImportError:
-    _config = None
-
 _log = logging.getLogger(__name__)
-_EMPTY_FETCH_WARNED: Dict[str, bool] = {}
 
 CSV_COLUMNS = ["ts", "open", "high", "low", "close", "volume"]
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _candle_to_row(c: Dict[str, Any]) -> Dict[str, Any]:
@@ -159,6 +161,25 @@ def _tf_to_min(tf: str | int) -> int:
     return int(s) if s.isdigit() else 15
 
 
+def _to_api_interval(tf_min: int) -> str:
+    """Unify API interval mapping (e.g. 5m/15m/60m/240m -> 5/15/60/240)."""
+    from bybit import _to_bybit_interval
+
+    return _to_bybit_interval(tf_min)
+
+
+def _align_range(start_ms: int, end_ms: int, tf_min: int) -> Tuple[int, int]:
+    bar_ms = tf_min * 60 * 1000
+    return ((start_ms // bar_ms) * bar_ms, (end_ms // bar_ms) * bar_ms)
+
+
+def _merge_dedupe_sort(existing: List[Dict[str, Any]], fetched: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    by_ts: Dict[int, Dict[str, Any]] = {int(c["timestamp"]): c for c in existing}
+    for c in fetched:
+        by_ts[int(c["timestamp"])] = c
+    return sorted(by_ts.values(), key=lambda x: x["timestamp"])
+
+
 def _fetch_segment_from_api(
     symbol: str,
     tf_min: int,
@@ -180,7 +201,7 @@ def _fetch_segment_from_api(
         time.sleep(pace_ms / 1000.0)
         raw = fetch_klines(
             symbol=symbol,
-            interval=tf_min,
+            interval=_to_api_interval(tf_min),
             limit=limit,
             start_ms=seg_start_ms,
             end_ms=current_end,
@@ -220,11 +241,9 @@ def get_candles(
     """
     tf_min = _tf_to_min(tf)
     path = _cache_path(symbol, tf_min)
-    bar_ms = tf_min * 60 * 1000
     key = f"{symbol}_{tf_min}"
-
-    aligned_start = (start_ms // bar_ms) * bar_ms
-    aligned_end = (end_ms // bar_ms) * bar_ms
+    bar_ms = tf_min * 60 * 1000
+    aligned_start, aligned_end = _align_range(start_ms, end_ms, tf_min)
 
     cached: List[Dict[str, Any]] = []
     if use_cache and path.exists():
@@ -232,146 +251,128 @@ def get_candles(
     min_ts = cached[0]["timestamp"] if cached else None
     max_ts = cached[-1]["timestamp"] if cached else None
 
-    covered = (
-        min_ts is not None
-        and max_ts is not None
-        and min_ts <= aligned_start + bar_ms
-        and max_ts >= aligned_end - bar_ms
-    )
-    if cached and covered:
-        out = [c for c in cached if aligned_start <= c["timestamp"] <= aligned_end]
-        out = [_ensure_ts_key(c) for c in out]
+    if cache_only:
+        if min_ts is None or max_ts is None:
+            raise RuntimeError(f"cache_only: no cache for {symbol} tf={tf_min} (path={path})")
+        cache_min, cache_max = int(min_ts), int(max_ts)
+        tf_ms = bar_ms
+        max_gap_bars = int(os.getenv("CACHE_ONLY_GAP_BARS_MAX", "12"))
+        max_trunc_pct = float(os.getenv("CACHE_ONLY_MAX_TRUNC_PCT", "0.05"))
+        allow_trunc = _env_bool("CACHE_ONLY_ALLOW_TRUNCATION", True)
+
+        req_bars = int((aligned_end - aligned_start) // tf_ms) + 1
+        missing_start = 0
+        if cache_min > aligned_start:
+            missing_start = int(math.ceil((cache_min - aligned_start) / tf_ms))
+        missing_end = 0
+        if cache_max < aligned_end:
+            missing_end = int(math.ceil((aligned_end - cache_max) / tf_ms))
+        total_missing = missing_start + missing_end
+        missing_pct = (total_missing / req_bars) if req_bars > 0 else 1.0
+
+        if (missing_start > max_gap_bars or missing_end > max_gap_bars) and (
+            (not allow_trunc) or missing_pct > max_trunc_pct
+        ):
+            raise RuntimeError(
+                f"cache_only: cache for {symbol} tf={tf} missing too much data "
+                f"(start_gap_bars={missing_start}, end_gap_bars={missing_end}, missing_pct={missing_pct:.3%}). "
+                f"Cache has [{cache_min}..{cache_max}], requested [{aligned_start}..{aligned_end}]"
+            )
+
+        old_start, old_end = aligned_start, aligned_end
+        if cache_min > aligned_start:
+            aligned_start = cache_min
+        if cache_max < aligned_end:
+            aligned_end = cache_max
+        if old_start != aligned_start or old_end != aligned_end:
+            _log.info(
+                "CACHE_ONLY_TRUNCATED symbol=%s tf=%s missing_start_bars=%d missing_end_bars=%d missing_pct=%.3f%% "
+                "new_range=[%d..%d] old_range=[%d..%d]",
+                symbol,
+                tf,
+                missing_start,
+                missing_end,
+                missing_pct * 100.0,
+                aligned_start,
+                aligned_end,
+                old_start,
+                old_end,
+            )
+
+        out = [_ensure_ts_key(c) for c in cached if aligned_start <= c["timestamp"] <= aligned_end]
         if cache_hits is not None:
             cache_hits[key] = cache_hits.get(key, 0) + 1
         if _timing_out is not None:
             _timing_out["source"] = "cache"
-        _log.info(
-            "CANDLES tf=%s range=%d..%d bars=%d source=cache",
-            tf_min, aligned_start, aligned_end, len(out),
-        )
+        _log.info("CANDLES tf=%s range=%d..%d bars=%d source=cache", tf_min, aligned_start, aligned_end, len(out))
         _sanity_check(tf_min, aligned_start, aligned_end, len(out), "cache")
         return out
 
-    if cache_only:
-        cache_min, cache_max = min_ts, max_ts
-        if cache_min is None or cache_max is None:
-            raise RuntimeError(
-                f"cache_only: no cache for {symbol} tf={tf_min} (path={path})"
-            )
-        gap_max = int(getattr(_config, "CACHE_ONLY_GAP_BARS_MAX", 12)) if _config else 12
-        clamp_logged = False
-        if cache_min > aligned_start:
-            missing_bars = math.ceil((cache_min - aligned_start) / bar_ms)
-            if missing_bars <= gap_max:
-                aligned_start = cache_min
-                clamp_logged = True
-            else:
-                raise RuntimeError(
-                    f"cache_only: cache for {symbol} tf={tf_min} gap at start "
-                    f"({missing_bars} bars) > {gap_max}. Cache has [{cache_min}..{cache_max}], requested [{aligned_start}..{aligned_end}]"
-                )
-        if cache_max < aligned_end:
-            missing_bars = math.ceil((aligned_end - cache_max) / bar_ms)
-            if missing_bars <= gap_max:
-                aligned_end = cache_max
-                clamp_logged = True
-            else:
-                raise RuntimeError(
-                    f"cache_only: cache for {symbol} tf={tf_min} gap at end "
-                    f"({missing_bars} bars) > {gap_max}. Cache has [{cache_min}..{cache_max}], requested [{aligned_start}..{aligned_end}]"
-                )
-        if clamp_logged:
-            _log.info(
-                "CACHE_ONLY_CLAMP tf=%s start=%d end=%d cache=[%d..%d]",
-                tf_min, aligned_start, aligned_end, cache_min, cache_max,
-            )
-        out = [c for c in cached if aligned_start <= c["timestamp"] <= aligned_end]
-        out = [_ensure_ts_key(c) for c in out]
-        if cache_hits is not None:
-            cache_hits[key] = cache_hits.get(key, 0) + 1
-        if _timing_out is not None:
-            _timing_out["source"] = "cache"
-        _log.info(
-            "CANDLES tf=%s range=%d..%d bars=%d source=cache",
-            tf_min, aligned_start, aligned_end, len(out),
-        )
-        _sanity_check(tf_min, aligned_start, aligned_end, len(out), "cache")
-        return out
+    # ensure_range engine: backfill + forward-fill with pagination.
+    segments: List[Tuple[int, int, str]] = []
+    if min_ts is None or max_ts is None:
+        segments.append((aligned_start, aligned_end, "FULL_RANGE"))
+    else:
+        if min_ts > aligned_start:
+            segments.append((aligned_start, min(min_ts - bar_ms, aligned_end), "BACKFILL_START"))
+        if max_ts < aligned_end:
+            segments.append((max(max_ts + bar_ms, aligned_start), aligned_end, "FILL_END"))
 
     fetched: List[Dict[str, Any]] = []
-    # Backward fill: fetch candles before current cache_min when needed.
-    if min_ts is not None and max_ts is not None and aligned_start < min_ts - bar_ms:
-        backfill_start = aligned_start
-        backfill_end = min(min_ts - bar_ms, aligned_end)
-        if backfill_start <= backfill_end:
-            backfill = _fetch_segment_from_api(
-                symbol, tf_min, backfill_start, backfill_end, limit=1000, pace_ms=pace_ms
-            )
-            if backfill:
-                fetched.extend(backfill)
-                by_ts_backfill: Dict[int, Dict[str, Any]] = {c["timestamp"]: c for c in cached}
-                for c in backfill:
-                    by_ts_backfill[c["timestamp"]] = c
-                cached = sorted(by_ts_backfill.values(), key=lambda x: x["timestamp"])
-                min_ts = cached[0]["timestamp"] if cached else min_ts
-                max_ts = cached[-1]["timestamp"] if cached else max_ts
-                _log.info(
-                    "BACKFILL_START tf=%s fetched_bars=%d new_cache_min=%d",
-                    tf_min,
-                    len(backfill),
-                    min_ts if min_ts is not None else 0,
-                )
-                if len(cached) >= 5:
-                    _save_cache_file(path, cached, cache_days, end_ms)
-            elif not _EMPTY_FETCH_WARNED.get(key, False):
-                _EMPTY_FETCH_WARNED[key] = True
-                _log.warning(
-                    "Empty API response for %s tf=%s range=%d..%d",
-                    symbol,
-                    tf_min,
-                    backfill_start,
-                    backfill_end,
-                )
-
-    segments: List[Tuple[int, int]] = []
-    if min_ts is None or max_ts is None:
-        segments = [(aligned_start, aligned_end)]
-    else:
-        # Keep existing forward-fill behavior.
-        if aligned_end > max_ts + bar_ms:
-            segments.append((max(max_ts + bar_ms, aligned_start), aligned_end))
-
-    for seg_start, seg_end in segments:
+    for seg_start, seg_end, seg_kind in segments:
         if seg_start > seg_end:
             continue
-        seg = _fetch_segment_from_api(
-            symbol, tf_min, seg_start, seg_end, limit=1000, pace_ms=pace_ms
+        _log.info(
+            "%s symbol=%s tf=%s request=%d..%d cache=[%s..%s]",
+            seg_kind,
+            symbol,
+            tf_min,
+            seg_start,
+            seg_end,
+            str(min_ts),
+            str(max_ts),
         )
+        seg = _fetch_segment_from_api(symbol, tf_min, seg_start, seg_end, limit=1000, pace_ms=pace_ms)
         if not seg:
-            if not _EMPTY_FETCH_WARNED.get(key, False):
-                _EMPTY_FETCH_WARNED[key] = True
-                _log.warning("Empty API response for %s tf=%s range=%d..%d", symbol, tf_min, seg_start, seg_end)
-        else:
-            fetched.extend(seg)
+            raise RuntimeError(
+                f"ensure_range missing segment with empty API response: "
+                f"symbol={symbol} tf={tf_min} requested=[{seg_start}..{seg_end}] "
+                f"existing_cache=[{min_ts}..{max_ts}] kind={seg_kind}"
+            )
+        _log.info(
+            "%s symbol=%s tf=%s fetched_bars=%d request=%d..%d",
+            seg_kind,
+            symbol,
+            tf_min,
+            len(seg),
+            seg_start,
+            seg_end,
+        )
+        fetched.extend(seg)
 
-    by_ts: Dict[int, Dict[str, Any]] = {c["timestamp"]: c for c in cached}
-    for c in fetched:
-        by_ts[c["timestamp"]] = c
-    merged = sorted(by_ts.values(), key=lambda x: x["timestamp"])
-    if fetched and len(merged) >= 5:
-        _save_cache_file(path, merged, cache_days, end_ms)
-    out = [c for c in merged if aligned_start <= c["timestamp"] <= aligned_end]
-    out = [_ensure_ts_key(c) for c in out]
+    if fetched:
+        merged = _merge_dedupe_sort(cached, fetched)
+        if use_cache and len(merged) >= 5:
+            _save_cache_file(path, merged, cache_days, aligned_end)
+    else:
+        merged = list(cached)
 
-    source = "mixed" if cached and fetched else "api"
+    out = [_ensure_ts_key(c) for c in merged if aligned_start <= c["timestamp"] <= aligned_end]
+
+    covered_from_cache = bool(cached) and not segments
+    if covered_from_cache:
+        source = "cache"
+        if cache_hits is not None:
+            cache_hits[key] = cache_hits.get(key, 0) + 1
+    elif cached and fetched:
+        source = "mixed"
+    else:
+        source = "api"
+    if fetched and cache_misses is not None:
+        cache_misses[key] = cache_misses.get(key, 0) + 1
     if _timing_out is not None:
         _timing_out["source"] = source
-    if cache_misses is not None:
-        cache_misses[key] = cache_misses.get(key, 0) + 1
-    _log.info(
-        "CANDLES tf=%s range=%d..%d bars=%d source=%s",
-        tf_min, aligned_start, aligned_end, len(out), source,
-    )
+    _log.info("CANDLES tf=%s range=%d..%d bars=%d source=%s", tf_min, aligned_start, aligned_end, len(out), source)
     _sanity_check(tf_min, aligned_start, aligned_end, len(out), source)
     return out
 

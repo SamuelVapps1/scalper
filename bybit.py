@@ -5,7 +5,9 @@ from typing import Dict, List, Optional
 
 import requests
 
-from config import BYBIT_BASE_URL
+from scalper.settings import get_settings
+
+settings = get_settings()
 
 # Canonical mapping: tf_min (int) or alias (str) -> Bybit API interval string.
 # Bybit accepts: 1,3,5,15,30,60,120,240,360,720,D,W,M (no "m" suffix).
@@ -34,6 +36,7 @@ _RATE_LIMIT_RETCODE = 10006
 _LAST_TOPN_STATS: Dict[str, int] = {"candidates": 0, "filtered_out": 0, "final": 0}
 _LAST_KLINE_REQUEST_TIME: float = 0.0
 _RATE_LIMIT_STATS: Dict[str, int] = {"ok": 0, "cached": 0, "limited": 0, "failed": 0}
+_LAST_API_LATENCY_MS: Optional[float] = None
 
 
 class RateLimitedError(Exception):
@@ -46,17 +49,25 @@ RateLimitError = RateLimitedError
 _LAST_TOPN_EXCLUDED: List[str] = []
 
 
+def _do_json_request(url: str, params: Dict[str, str], timeout: int = 20) -> Dict:
+    """Execute HTTP GET and record latency; return JSON payload."""
+    global _LAST_API_LATENCY_MS
+    t0 = time.perf_counter()
+    response = requests.get(url, params=params, timeout=timeout)
+    _LAST_API_LATENCY_MS = (time.perf_counter() - t0) * 1000.0
+    response.raise_for_status()
+    return response.json()
+
+
 def get_linear_tickers() -> List[Dict]:
     """
     Fetch public tickers for category=linear (USDT linear perps).
     Returns raw ticker list from Bybit v5 /market/tickers.
     """
     _pace_before_request()
-    url = f"{BYBIT_BASE_URL}/v5/market/tickers"
+    url = f"{settings.bybit.base_url}/v5/market/tickers"
     params = {"category": "linear"}
-    response = requests.get(url, params=params, timeout=20)
-    response.raise_for_status()
-    payload = response.json()
+    payload = _do_json_request(url, params, timeout=20)
     if payload.get("retCode") != 0:
         raise RuntimeError(f"Bybit API error: {payload.get('retMsg', 'unknown error')}")
     return list(payload.get("result", {}).get("list", []) or [])
@@ -64,16 +75,14 @@ def get_linear_tickers() -> List[Dict]:
 
 def _do_klines_request(url: str, params: Dict) -> Dict:
     """Execute kline request; returns parsed payload. Raises on HTTP error."""
-    response = requests.get(url, params=params, timeout=15)
-    response.raise_for_status()
-    return response.json()
+    return _do_json_request(url, params, timeout=15)
 
 
 def _pace_before_request() -> None:
     """Sleep before each Bybit HTTP request to reduce rate-limit hits."""
     global _LAST_KLINE_REQUEST_TIME
     try:
-        sleep_ms = int(getattr(__import__("config"), "REQUEST_SLEEP_MS", 250))
+        sleep_ms = int(settings.bybit.request_sleep_ms)
     except Exception:
         sleep_ms = 250
     sleep_sec = sleep_ms / 1000.0
@@ -92,6 +101,11 @@ def record_cache_hit() -> None:
 def get_rate_limit_stats() -> Dict[str, int]:
     """Return current rate-limit stats: ok, limited, failed."""
     return dict(_RATE_LIMIT_STATS)
+
+
+def get_last_api_latency_ms() -> Optional[float]:
+    """Return latency of the last Bybit HTTP call in milliseconds."""
+    return None if _LAST_API_LATENCY_MS is None else float(_LAST_API_LATENCY_MS)
 
 
 def reset_rate_limit_stats() -> None:
@@ -115,7 +129,7 @@ def fetch_klines(
     """
     global _RATE_LIMIT_STATS
     api_interval = _to_bybit_interval(interval)
-    url = f"{BYBIT_BASE_URL}/v5/market/kline"
+    url = f"{settings.bybit.base_url}/v5/market/kline"
     params: Dict[str, str] = {
         "category": "linear",
         "symbol": symbol,
@@ -208,12 +222,9 @@ def get_top_linear_usdt_symbols(
     """
     top_n = max(1, int(n))
     _pace_before_request()
-    url = f"{BYBIT_BASE_URL}/v5/market/tickers"
+    url = f"{settings.bybit.base_url}/v5/market/tickers"
     params = {"category": "linear"}
-    response = requests.get(url, params=params, timeout=20)
-    response.raise_for_status()
-
-    payload = response.json()
+    payload = _do_json_request(url, params, timeout=20)
     if payload.get("retCode") != 0:
         raise RuntimeError(f"Bybit API error: {payload.get('retMsg', 'unknown error')}")
 

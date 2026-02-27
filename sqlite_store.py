@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-_DB_LOCK = threading.RLock()
+_INIT_LOCK = threading.Lock()
+_WRITE_LOCK = threading.Lock()
 _DB_READY = False
 
 
@@ -39,7 +40,7 @@ def _ensure_db() -> None:
     global _DB_READY
     if _DB_READY:
         return
-    with _DB_LOCK:
+    with _INIT_LOCK:
         if _DB_READY:
             return
         with _connect() as conn:
@@ -60,20 +61,28 @@ def _ensure_db() -> None:
                     id TEXT PRIMARY KEY,
                     ts INTEGER,
                     symbol TEXT,
+                    side TEXT,
                     setup TEXT,
+                    strategy_id TEXT,
                     direction TEXT,
                     timeframe TEXT,
                     status TEXT,
+                    verdict TEXT,
                     risk_verdict TEXT,
+                    reason_code TEXT,
                     block_reason TEXT,
+                    details_json TEXT,
                     json TEXT
                 );
                 CREATE TABLE IF NOT EXISTS risk_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     ts INTEGER,
+                    event_type TEXT,
                     type TEXT,
                     status TEXT,
+                    reason_code TEXT,
                     reason TEXT,
+                    details_json TEXT,
                     json TEXT
                 );
                 CREATE TABLE IF NOT EXISTS positions (
@@ -94,11 +103,58 @@ def _ensure_db() -> None:
                     k TEXT PRIMARY KEY,
                     v TEXT
                 );
+                CREATE TABLE IF NOT EXISTS paper_positions (
+                    id TEXT PRIMARY KEY,
+                    symbol TEXT,
+                    side TEXT,
+                    strategy TEXT,
+                    status TEXT,
+                    entry_price REAL,
+                    sl_price REAL,
+                    tp_price REAL,
+                    qty REAL,
+                    notional_usdt REAL,
+                    opened_ts INTEGER,
+                    updated_ts INTEGER,
+                    json TEXT
+                );
+                CREATE TABLE IF NOT EXISTS paper_trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    position_id TEXT,
+                    symbol TEXT,
+                    side TEXT,
+                    strategy TEXT,
+                    entry_ts INTEGER,
+                    exit_ts INTEGER,
+                    entry_price REAL,
+                    exit_price REAL,
+                    qty REAL,
+                    notional_usdt REAL,
+                    pnl_usdt REAL,
+                    r_multiple REAL,
+                    exit_reason TEXT,
+                    fee_usdt REAL,
+                    json TEXT
+                );
                 CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(ts DESC);
                 CREATE INDEX IF NOT EXISTS idx_signals_hash ON signals(hash);
+                CREATE INDEX IF NOT EXISTS idx_signals_symbol_ts ON signals(symbol, ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_signals_setup_ts ON signals(setup, ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_signals_symbol_setup_ts ON signals(symbol, setup, ts DESC);
                 CREATE INDEX IF NOT EXISTS idx_trade_intents_ts ON trade_intents(ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_trade_intents_symbol_ts ON trade_intents(symbol, ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_trade_intents_setup_ts ON trade_intents(setup, ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_trade_intents_symbol_setup_ts ON trade_intents(symbol, setup, ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_trade_intents_status_ts ON trade_intents(status, ts DESC);
                 CREATE INDEX IF NOT EXISTS idx_risk_events_ts ON risk_events(ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_risk_events_type_ts ON risk_events(type, ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_risk_events_reason_ts ON risk_events(reason, ts DESC);
                 CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status);
+                CREATE INDEX IF NOT EXISTS idx_positions_symbol_status ON positions(symbol, status);
+                CREATE INDEX IF NOT EXISTS idx_positions_symbol_opened_ts ON positions(symbol, opened_ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_paper_positions_symbol_status ON paper_positions(symbol, status);
+                CREATE INDEX IF NOT EXISTS idx_paper_positions_opened_ts ON paper_positions(opened_ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_paper_trades_symbol_exit_ts ON paper_trades(symbol, exit_ts DESC);
                 """
             )
             _migrate_schema(conn)
@@ -109,11 +165,29 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     """Add columns for existing DBs; tolerate missing columns."""
     migrations = [
         "ALTER TABLE signals ADD COLUMN json TEXT",
+        "ALTER TABLE trade_intents ADD COLUMN side TEXT",
+        "ALTER TABLE trade_intents ADD COLUMN strategy_id TEXT",
+        "ALTER TABLE trade_intents ADD COLUMN verdict TEXT",
+        "ALTER TABLE trade_intents ADD COLUMN reason_code TEXT",
+        "ALTER TABLE trade_intents ADD COLUMN details_json TEXT",
         "ALTER TABLE trade_intents ADD COLUMN json TEXT",
+        "ALTER TABLE risk_events ADD COLUMN event_type TEXT",
+        "ALTER TABLE risk_events ADD COLUMN reason_code TEXT",
+        "ALTER TABLE risk_events ADD COLUMN details_json TEXT",
         "ALTER TABLE risk_events ADD COLUMN json TEXT",
         "ALTER TABLE positions ADD COLUMN json TEXT",
     ]
     for sql in migrations:
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass
+    for sql in (
+        "CREATE INDEX IF NOT EXISTS idx_trade_intents_verdict_ts ON trade_intents(verdict, ts DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_trade_intents_reason_code_ts ON trade_intents(reason_code, ts DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_risk_events_event_type_ts ON risk_events(event_type, ts DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_risk_events_reason_code_ts ON risk_events(reason_code, ts DESC)",
+    ):
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
@@ -184,7 +258,7 @@ def store_signal(signal: Dict[str, Any]) -> bool:
     sig_hash = _signal_hash(signal)
 
     json_payload = json.dumps(signal, ensure_ascii=True)
-    with _DB_LOCK:
+    with _WRITE_LOCK:
         with _connect() as conn:
             cur = conn.execute(
                 """
@@ -249,25 +323,44 @@ def store_trade_intent(intent: Dict[str, Any]) -> None:
     ts = _to_epoch(payload.get("ts") or payload.get("timestamp_utc"))
     iid = _intent_id(payload)
 
-    with _DB_LOCK:
+    side = str(payload.get("side") or payload.get("direction") or "")
+    setup = str(payload.get("setup") or payload.get("strategy") or "")
+    strategy_id = str(payload.get("strategy_id") or setup)
+    verdict = str(payload.get("verdict") or payload.get("risk_verdict") or "")
+    reason_code = str(payload.get("reason_code") or payload.get("block_reason") or "")
+    details_json = payload.get("details_json")
+    if details_json is None:
+        details_json = json.dumps(payload.get("details", {}), ensure_ascii=True)
+    else:
+        details_json = str(details_json)
+
+    with _WRITE_LOCK:
         with _connect() as conn:
             payload_json = json.dumps(payload, ensure_ascii=True)
             try:
                 conn.execute(
                     """
-                    INSERT INTO trade_intents (id, ts, symbol, setup, direction, timeframe, status, risk_verdict, block_reason, json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO trade_intents (
+                        id, ts, symbol, side, setup, strategy_id, direction, timeframe,
+                        status, verdict, risk_verdict, reason_code, block_reason, details_json, json
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         iid,
                         ts,
                         str(payload.get("symbol", "") or ""),
-                        str(payload.get("setup") or payload.get("strategy") or ""),
-                        str(payload.get("direction") or payload.get("side") or ""),
+                        side,
+                        setup,
+                        strategy_id,
+                        str(payload.get("direction") or side),
                         str(payload.get("timeframe") or payload.get("interval") or ""),
                         str(payload.get("status", "") or ""),
+                        verdict,
                         str(payload.get("risk_verdict", "") or ""),
+                        reason_code,
                         str(payload.get("block_reason", "") or ""),
+                        details_json,
                         payload_json,
                     ),
                 )
@@ -275,19 +368,27 @@ def store_trade_intent(intent: Dict[str, Any]) -> None:
                 iid = f"{iid}:{ts}:{int(time.time_ns() % 1000000)}"
                 conn.execute(
                     """
-                    INSERT INTO trade_intents (id, ts, symbol, setup, direction, timeframe, status, risk_verdict, block_reason, json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO trade_intents (
+                        id, ts, symbol, side, setup, strategy_id, direction, timeframe,
+                        status, verdict, risk_verdict, reason_code, block_reason, details_json, json
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         iid,
                         ts,
                         str(payload.get("symbol", "") or ""),
-                        str(payload.get("setup") or payload.get("strategy") or ""),
-                        str(payload.get("direction") or payload.get("side") or ""),
+                        side,
+                        setup,
+                        strategy_id,
+                        str(payload.get("direction") or side),
                         str(payload.get("timeframe") or payload.get("interval") or ""),
                         str(payload.get("status", "") or ""),
+                        verdict,
                         str(payload.get("risk_verdict", "") or ""),
+                        reason_code,
                         str(payload.get("block_reason", "") or ""),
+                        details_json,
                         payload_json,
                     ),
                 )
@@ -321,7 +422,9 @@ def get_recent_trade_intents(limit: int = 50) -> List[Dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, ts, symbol, setup, direction, timeframe, status, risk_verdict, block_reason, json
+            SELECT
+                id, ts, symbol, side, setup, strategy_id, direction, timeframe, status,
+                verdict, risk_verdict, reason_code, block_reason, details_json, json
             FROM trade_intents
             ORDER BY ts DESC, rowid DESC
             LIMIT ?
@@ -339,12 +442,17 @@ def get_recent_trade_intents(limit: int = 50) -> List[Dict[str, Any]]:
         merged.setdefault("id", str(row["id"] or ""))
         merged.setdefault("ts", _epoch_to_iso(row["ts"]))
         merged.setdefault("symbol", str(row["symbol"] or ""))
+        merged.setdefault("side", str(row["side"] or ""))
         merged.setdefault("setup", str(row["setup"] or ""))
+        merged.setdefault("strategy_id", str(row["strategy_id"] or ""))
         merged.setdefault("direction", str(row["direction"] or ""))
         merged.setdefault("timeframe", str(row["timeframe"] or ""))
         merged.setdefault("status", str(row["status"] or ""))
+        merged.setdefault("verdict", str(row["verdict"] or ""))
         merged.setdefault("risk_verdict", str(row["risk_verdict"] or ""))
+        merged.setdefault("reason_code", str(row["reason_code"] or ""))
         merged.setdefault("block_reason", str(row["block_reason"] or ""))
+        merged.setdefault("details_json", str(row["details_json"] or ""))
         out.append(merged)
     return out
 
@@ -354,18 +462,28 @@ def store_risk_event(event: Dict[str, Any]) -> None:
     _ensure_db()
     payload = dict(event or {})
     ts = _to_epoch(payload.get("ts") or payload.get("timestamp_utc"))
-    with _DB_LOCK:
+    event_type = str(payload.get("event_type") or payload.get("type") or "")
+    reason_code = str(payload.get("reason_code") or payload.get("reason") or "")
+    details_json = payload.get("details_json")
+    if details_json is None:
+        details_json = json.dumps(payload.get("details", {}), ensure_ascii=True)
+    else:
+        details_json = str(details_json)
+    with _WRITE_LOCK:
         with _connect() as conn:
             conn.execute(
                 """
-                INSERT INTO risk_events (ts, type, status, reason, json)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO risk_events (ts, event_type, type, status, reason_code, reason, details_json, json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts,
+                    event_type,
                     str(payload.get("type", "") or ""),
                     str(payload.get("status", "") or ""),
+                    reason_code,
                     str(payload.get("reason", "") or ""),
+                    details_json,
                     json.dumps(payload, ensure_ascii=True),
                 ),
             )
@@ -378,7 +496,7 @@ def get_recent_risk_events(limit: int = 50) -> List[Dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT ts, type, status, reason, json
+            SELECT ts, event_type, type, status, reason_code, reason, details_json, json
             FROM risk_events
             ORDER BY ts DESC, id DESC
             LIMIT ?
@@ -393,9 +511,12 @@ def get_recent_risk_events(limit: int = 50) -> List[Dict[str, Any]]:
             payload = {}
         merged = dict(payload)
         merged.setdefault("ts", _epoch_to_iso(row["ts"]))
+        merged.setdefault("event_type", str(row["event_type"] or ""))
         merged.setdefault("type", str(row["type"] or ""))
         merged.setdefault("status", str(row["status"] or ""))
+        merged.setdefault("reason_code", str(row["reason_code"] or ""))
         merged.setdefault("reason", str(row["reason"] or ""))
+        merged.setdefault("details_json", str(row["details_json"] or ""))
         out.append(merged)
     return out
 
@@ -413,7 +534,7 @@ def kv_get(key: str, default: Optional[str] = None) -> Optional[str]:
 
 def kv_set(key: str, value: str) -> None:
     _ensure_db()
-    with _DB_LOCK:
+    with _WRITE_LOCK:
         with _connect() as conn:
             conn.execute(
                 """
@@ -492,7 +613,7 @@ def sync_positions_and_fills(open_positions: List[Dict[str, Any]], closed_trades
     )
     positions_upserted = len(open_list) + len(closed_list)
 
-    with _DB_LOCK:
+    with _WRITE_LOCK:
         with _connect() as conn:
             open_ids = [_position_id(p, prefix="pos") for p in open_list]
             closed_ids = [_position_id(t, prefix="closed") for t in closed_list]
@@ -567,3 +688,114 @@ def sync_positions_and_fills(open_positions: List[Dict[str, Any]], closed_trades
                 )
             else:
                 conn.execute("DELETE FROM positions")
+
+
+def upsert_paper_position(position: Dict[str, Any]) -> None:
+    _ensure_db()
+    row = dict(position or {})
+    pid = str(row.get("intent_id") or row.get("id") or "").strip() or _position_id(row, prefix="paper")
+    symbol = str(row.get("symbol", "") or "").upper()
+    side = str(row.get("side", "") or row.get("direction", "") or "").upper()
+    strategy = str(row.get("strategy", "") or row.get("setup", "") or "")
+    status = str(row.get("status", "OPEN") or "OPEN").upper()
+    entry = float(row.get("entry_price", 0.0) or 0.0)
+    sl = float(row.get("sl_price", 0.0) or 0.0)
+    tp = float(row.get("tp_price", 0.0) or 0.0)
+    qty = float(row.get("qty_est", row.get("qty", 0.0)) or 0.0)
+    notional = float(row.get("notional_usdt", 0.0) or 0.0)
+    opened_ts = _to_epoch(row.get("entry_ts") or row.get("ts"))
+    updated_ts = _to_epoch(row.get("last_ts") or row.get("timestamp_utc") or row.get("close_ts") or row.get("entry_ts"))
+    row["id"] = pid
+    with _WRITE_LOCK:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO paper_positions (
+                    id, symbol, side, strategy, status, entry_price, sl_price, tp_price, qty, notional_usdt, opened_ts, updated_ts, json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    symbol=excluded.symbol,
+                    side=excluded.side,
+                    strategy=excluded.strategy,
+                    status=excluded.status,
+                    entry_price=excluded.entry_price,
+                    sl_price=excluded.sl_price,
+                    tp_price=excluded.tp_price,
+                    qty=excluded.qty,
+                    notional_usdt=excluded.notional_usdt,
+                    opened_ts=excluded.opened_ts,
+                    updated_ts=excluded.updated_ts,
+                    json=excluded.json
+                """,
+                (
+                    pid,
+                    symbol,
+                    side,
+                    strategy,
+                    status,
+                    entry,
+                    sl,
+                    tp,
+                    qty,
+                    notional,
+                    opened_ts,
+                    updated_ts,
+                    json.dumps(row, ensure_ascii=True),
+                ),
+            )
+
+
+def delete_paper_position(position_id: str) -> None:
+    _ensure_db()
+    pid = str(position_id or "").strip()
+    if not pid:
+        return
+    with _WRITE_LOCK:
+        with _connect() as conn:
+            conn.execute("DELETE FROM paper_positions WHERE id = ?", (pid,))
+
+
+def insert_paper_trade(trade: Dict[str, Any]) -> None:
+    _ensure_db()
+    row = dict(trade or {})
+    position_id = str(row.get("intent_id") or row.get("position_id") or "").strip()
+    symbol = str(row.get("symbol", "") or "").upper()
+    side = str(row.get("side", "") or row.get("direction", "") or "").upper()
+    strategy = str(row.get("strategy", "") or row.get("setup", "") or "")
+    entry_ts = _to_epoch(row.get("entry_ts") or row.get("ts"))
+    exit_ts = _to_epoch(row.get("close_ts") or row.get("exit_ts") or row.get("timestamp_utc"))
+    entry_price = float(row.get("entry_price", 0.0) or 0.0)
+    exit_price = float(row.get("exit_price", row.get("close_price", 0.0)) or 0.0)
+    qty = float(row.get("qty_est", row.get("qty", 0.0)) or 0.0)
+    notional = float(row.get("notional_usdt", 0.0) or 0.0)
+    pnl_usdt = float(row.get("pnl_usdt", row.get("pnl", 0.0)) or 0.0)
+    r_multiple_raw = row.get("r_multiple")
+    r_multiple = float(r_multiple_raw) if isinstance(r_multiple_raw, (int, float)) else None
+    exit_reason = str(row.get("close_reason", row.get("exit_reason", "")) or "")
+    fee_usdt = float(row.get("fee_usdt", 0.0) or 0.0)
+    with _WRITE_LOCK:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO paper_trades (
+                    position_id, symbol, side, strategy, entry_ts, exit_ts, entry_price, exit_price, qty, notional_usdt, pnl_usdt, r_multiple, exit_reason, fee_usdt, json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    position_id,
+                    symbol,
+                    side,
+                    strategy,
+                    entry_ts,
+                    exit_ts,
+                    entry_price,
+                    exit_price,
+                    qty,
+                    notional,
+                    pnl_usdt,
+                    r_multiple,
+                    exit_reason,
+                    fee_usdt,
+                    json.dumps(row, ensure_ascii=True),
+                ),
+            )
