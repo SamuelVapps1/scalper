@@ -6,7 +6,18 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List
 
-from pydantic.v1 import BaseModel, BaseSettings, Field, root_validator
+try:
+    from pydantic.v1 import BaseModel, Field, root_validator
+except ImportError:
+    from pydantic import BaseModel, Field, root_validator  # type: ignore[assignment]
+
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    try:
+        from pydantic.v1 import BaseSettings
+    except ImportError:
+        from pydantic import BaseSettings  # type: ignore[assignment]
 
 try:
     from dotenv import dotenv_values, find_dotenv, load_dotenv

@@ -3,3 +3,5 @@ python-dotenv
 pandas
 fastapi
 uvicorn
+pydantic>=2,<3
+pydantic-settings>=2,<3
