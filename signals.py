@@ -2420,4 +2420,4 @@ def evaluate_symbol_intents_with_plugins(
         "tp_r": float(_get_config_float("PAPER_TP_ATR", 1.5)),
     }
     result = evaluate_enabled_first(symbol=symbol, context=ctx, strategies=strategies)
-    return strategy_result_to_evaluated(result)
+    return strategy_result_to_evaluated(result, context=ctx)

@@ -97,6 +97,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable scan summary for this run (sets DISABLE_SCAN_SUMMARY=False, NOTIFY_SCAN_SUMMARY=True).",
     )
+    parser.add_argument(
+        "--validate-env",
+        action="store_true",
+        help="Load settings, validate required env, print OK and exit 0, or print missing keys and exit non-zero.",
+    )
     return parser.parse_args()
 
 
