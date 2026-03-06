@@ -72,6 +72,11 @@ def parse_args() -> argparse.Namespace:
         help="Run one paper sizing smoke test and exit.",
     )
     parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Run diagnostics report and exit.",
+    )
+    parser.add_argument(
         "--reconcile",
         type=str,
         default="",
@@ -327,6 +332,13 @@ def run_sizing_test(config_module) -> int:
         position.notional_usdt,
         position.qty_est,
     )
+    return 0
+
+
+def run_doctor() -> int:
+    from scripts.doctor import main as doctor_main
+
+    doctor_main()
     return 0
 
 
@@ -1889,12 +1901,14 @@ def run_scan_loop_worker(
 
 def run_with_args(args: argparse.Namespace, config_module=None) -> int:
     logger = logging.getLogger(__name__)
+    from scalper.settings import log_settings_backend
 
     config = config_module
     if config is None:
         import config as _config
 
         config = _config
+    log_settings_backend(logger)
 
     if getattr(args, "enable_scan_summary", False):
         config.DISABLE_SCAN_SUMMARY = False
@@ -1923,6 +1937,8 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
         return run_reconcile(config, args.reconcile)
     if args.sizing_test:
         return run_sizing_test(config)
+    if args.doctor:
+        return run_doctor()
 
     if args.serve_dashboard:
         from dashboard_server import run_dashboard_server
