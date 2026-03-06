@@ -57,4 +57,3 @@ class Intent:
         if self.risk_reason:
             out.setdefault("risk", {})["reason"] = str(self.risk_reason)
         return out
-

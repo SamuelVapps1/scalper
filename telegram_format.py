@@ -65,17 +65,26 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
     strategy = _strategy_display(intent.get("strategy", "?"))
     conf = _fmt_float(intent.get("confidence", 0.0), 2)
     bias = str(market_ctx.get("bias", "") or "").upper()
-    entry = _fmt_float(market_ctx.get("entry"))
+    entry_raw = market_ctx.get("entry", market_ctx.get("bar_close"))
+    entry = _fmt_float(entry_raw)
     sl = _fmt_float(market_ctx.get("sl"))
     tp = _fmt_float(market_ctx.get("tp"))
     sl_pct = _fmt_float(market_ctx.get("sl_pct"), 2)
     tp_pct = _fmt_float(market_ctx.get("tp_pct"), 2)
     qty = _fmt_float(market_ctx.get("qty"), 6)
     notional = _fmt_float(market_ctx.get("notional"), 2)
+    levels_reason = str(market_ctx.get("levels_reason", "") or "")
+    if not levels_reason:
+        if sl == "n/a" or tp == "n/a":
+            levels_reason = "levels_unavailable"
+        else:
+            levels_reason = "ok"
     bar_ts_used = str(market_ctx.get("bar_ts_used", "") or "")
     intent_id = str(intent.get("intent_id", market_ctx.get("intent_id", "")) or "")
     note = str(intent.get("reason", "") or "")
     risk_reason = str(risk.get("reason", "") or "")
+    meta = intent.get("meta") if isinstance(intent.get("meta"), dict) else {}
+    rec_sl = _fmt_float(meta.get("recommended_sl_price")) if meta else "n/a"
     open_now = int(market_ctx.get("open_now", 0) or 0)
     open_max = int(market_ctx.get("open_max", 0) or 0)
     trades_today = int(market_ctx.get("trades_today", 0) or 0)
@@ -94,6 +103,8 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
         f"ALLOW[{tf}m] {symbol} {side} conf={conf}",
         f"setup={human_note} bias={bias or 'n/a'}{levels_str}",
         f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct}",
+        f"qty={qty} notional={notional}",
+        f"levels_reason={levels_reason}",
         f"bar_ts={bar_ts_used}",
         f"risk open={open_now}/{open_max} trades={trades_today} cooldown={cooldown_state}",
     ]
@@ -102,6 +113,8 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
         f"{symbol} {side} {strategy} conf={conf} bias={bias or 'n/a'}",
         f"break={_fmt_float(break_level) if break_level is not None else 'n/a'} retest={_fmt_float(retest_level) if retest_level is not None else 'n/a'}",
         f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct} qty={qty} notional={notional}",
+        f"rec_sl={rec_sl}",
+        f"levels_reason={levels_reason}",
         f"bar_ts_used={bar_ts_used} intent_id={intent_id}",
         f"setup_note={note}",
         f"risk_reason={risk_reason}",
@@ -221,9 +234,18 @@ def format_early_alert(early: Dict[str, Any], market_ctx: Dict[str, Any]) -> str
     bar_ts_15m = str(early.get("bar_ts_15m", "") or "")
     bar_ts_5m = str(early.get("bar_ts_5m", early.get("bar_ts_used", early.get("ts", ""))) or "")
     note = STRATEGY_HUMAN_NOTES.get(str(early.get("strategy", "")), "Early candidate")
+    preview_entry = _fmt_float(market_ctx.get("preview_entry"))
+    preview_sl = _fmt_float(market_ctx.get("preview_sl"))
+    preview_tp = _fmt_float(market_ctx.get("preview_tp"))
+    preview_reason = str(market_ctx.get("preview_reason", "") or "")
+    if preview_entry != "n/a" and preview_sl != "n/a" and preview_tp != "n/a":
+        preview_line = f"PREVIEW entry={preview_entry} sl={preview_sl} tp={preview_tp}"
+    else:
+        preview_line = f"preview=OFF ({preview_reason or 'missing atr -> no preview'})"
     compact = [
         f"EARLY[{tf}m] {symbol} {side} conf={conf}",
         f"setup={note}",
+        preview_line,
         f"bar15={bar_ts_15m}",
         f"bar5={bar_ts_5m}",
     ]
@@ -231,6 +253,7 @@ def format_early_alert(early: Dict[str, Any], market_ctx: Dict[str, Any]) -> str
         f"⚠️ EARLY[{tf}m]",
         f"{symbol} {side} {strategy} conf={conf}",
         f"setup_note={note}",
+        preview_line,
         f"bar_ts_15m={bar_ts_15m}",
         f"bar_ts_5m={bar_ts_5m}",
         "mode=DRY_RUN",

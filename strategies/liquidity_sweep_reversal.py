@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
-from scalper.types import Intent
+from scalper.scalper_types import Intent
 
 
 def _get_lsr_params(settings: Any) -> Dict[str, Any]:

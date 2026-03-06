@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Callable, Optional, Tuple
 
-from storage import load_paper_state, save_paper_state
+from scalper.storage import load_paper_state, save_paper_state
 
 
 @dataclass(frozen=True)

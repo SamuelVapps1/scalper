@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from scalper.types import Intent
+from scalper.scalper_types import Intent
 
 
 def _latest_row(df: pd.DataFrame) -> Dict[str, Any]:

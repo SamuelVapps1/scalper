@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from indicators import rsi_wilder
-from scalper.types import Intent
+from scalper.scalper_types import Intent
 
 
 def _params(settings: Any) -> Dict[str, Any]:
