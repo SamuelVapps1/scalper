@@ -67,7 +67,7 @@ def run_scan_cycle(
 ) -> None:
     from bybit import fetch_klines
     from signals import generate_signals
-    from scalper.storage import append_signal
+    from storage import append_signal
     from telegram_notify import send_telegram
 
     now_utc = datetime.now(timezone.utc)

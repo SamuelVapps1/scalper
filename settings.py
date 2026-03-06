@@ -12,9 +12,12 @@ except ImportError:
     from pydantic import BaseModel, Field, root_validator  # type: ignore[assignment]
 
 try:
-    from pydantic.v1 import BaseSettings
+    from pydantic_settings import BaseSettings
 except ImportError:
-    from pydantic import BaseSettings  # type: ignore[assignment]
+    try:
+        from pydantic.v1 import BaseSettings
+    except ImportError:
+        from pydantic import BaseSettings  # type: ignore[assignment]
 
 try:
     from dotenv import dotenv_values, find_dotenv, load_dotenv
@@ -155,7 +158,7 @@ class BybitSettings(BaseSettings):
     execution_mode: str = Field("disabled", env="EXECUTION_MODE")
     explicit_confirm_execution: bool = Field(False, env="EXPLICIT_CONFIRM_EXECUTION")
 
-    @root_validator(pre=False, allow_reuse=True)
+    @root_validator(pre=False)
     def _normalize(cls, values):
         values["base_url"] = str(values.get("base_url") or "https://api.bybit.com").rstrip("/")
         values["request_sleep_ms"] = max(0, int(values.get("request_sleep_ms", 250)))
@@ -177,13 +180,13 @@ class TelegramSettings(BaseSettings):
     early_enabled: bool = Field(False, env="TELEGRAM_EARLY_ENABLED")
     early_max_per_symbol_per_15m: int = Field(1, env="TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M")
 
-    @root_validator(pre=True, allow_reuse=True)
+    @root_validator(pre=True)
     def _chat_fallback(cls, values):
         if not values.get("chat_id"):
             values["chat_id"] = os.getenv("CHAT_ID", "")
         return values
 
-    @root_validator(pre=False, allow_reuse=True)
+    @root_validator(pre=False)
     def _normalize(cls, values):
         fmt = str(values.get("format") or "compact").lower()
         values["format"] = fmt if fmt in {"compact", "verbose"} else "compact"
@@ -269,7 +272,7 @@ class RiskSettings(BaseSettings):
     cluster_btc_eth_limit: int = Field(1, env="CLUSTER_BTC_ETH_LIMIT")
     fail_closed_on_snapshot_missing: bool = Field(True, env="FAIL_CLOSED_ON_SNAPSHOT_MISSING")
 
-    @root_validator(pre=True, allow_reuse=True)
+    @root_validator(pre=True)
     def _legacy_refresh_alias(cls, values):
         if not values.get("watchlist_refresh_minutes"):
             raw = os.getenv("WATCHLIST_REFRESH_MIN")
@@ -281,7 +284,7 @@ class RiskSettings(BaseSettings):
                 values["max_open_positions"] = 1 if str(legacy).strip().lower() in {"1", "true", "yes", "on"} else 0
         return values
 
-    @root_validator(pre=False, allow_reuse=True)
+    @root_validator(pre=False)
     def _normalize(cls, values):
         mode = str(values.get("watchlist_mode") or "static").lower()
         values["watchlist_mode"] = mode if mode in {"static", "topn", "dynamic"} else "static"
@@ -369,7 +372,7 @@ class StrategyV3Settings(BaseSettings):
     max_atr_pct_15m: float = Field(3.0, env="MAX_ATR_PCT_15M")
     log_v3_triggers: bool = Field(False, env="LOG_V3_TRIGGERS")
 
-    @root_validator(pre=False, allow_reuse=True)
+    @root_validator(pre=False)
     def _normalize(cls, values):
         values["donchian_n_15m"] = max(1, int(values.get("donchian_n_15m", 20)))
         values["body_atr_15m"] = max(0.0, float(values.get("body_atr_15m", 0.25)))
@@ -392,7 +395,7 @@ class ReplaySettings(BaseSettings):
     replay_exit_mode: str = Field("hard", env="REPLAY_EXIT_MODE")
     replay_progress_every: int = Field(0, env="REPLAY_PROGRESS_EVERY")
 
-    @root_validator(pre=False, allow_reuse=True)
+    @root_validator(pre=False)
     def _normalize(cls, values):
         values["be_at_r"] = max(0.0, float(values.get("be_at_r", 1.0)))
         values["partial_tp_at_r"] = max(0.0, float(values.get("partial_tp_at_r", 0.0)))
@@ -407,7 +410,7 @@ class CacheSettings(BaseSettings):
     candles_cache_ttl_seconds: int = Field(120, env="CANDLES_CACHE_TTL_SECONDS")
     cache_only_gap_bars_max: int = Field(12, env="CACHE_ONLY_GAP_BARS_MAX")
 
-    @root_validator(pre=False, allow_reuse=True)
+    @root_validator(pre=False)
     def _normalize(cls, values):
         values["candles_cache_ttl_seconds"] = max(1, int(values.get("candles_cache_ttl_seconds", 120)))
         values["cache_only_gap_bars_max"] = max(0, int(values.get("cache_only_gap_bars_max", 12)))
@@ -423,7 +426,7 @@ class DashboardSettings(BaseSettings):
     include_market_snapshot: bool = Field(True, env="DASHBOARD_INCLUDE_MARKET_SNAPSHOT")
     include_debug_why_none: bool = Field(False, env="DASHBOARD_INCLUDE_DEBUG_WHY_NONE")
 
-    @root_validator(pre=False, allow_reuse=True)
+    @root_validator(pre=False)
     def _normalize(cls, values):
         values["host"] = str(values.get("host") or "127.0.0.1").strip() or "127.0.0.1"
         port = int(values.get("port", 8000))
