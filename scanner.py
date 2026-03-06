@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import threading
+from pathlib import Path
 from datetime import timezone, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
@@ -111,6 +112,23 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Load settings, validate required env, print OK and exit 0, or print missing keys and exit non-zero.",
     )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Run offline diagnostics (env sanitize, strategies, telegram config, conflict check) and exit.",
+    )
+    parser.add_argument(
+        "--test-intent-notify",
+        nargs=2,
+        metavar=("SYMBOL", "SIDE"),
+        help="Run synthetic approved-intent notification pipeline and exit.",
+    )
+    parser.add_argument(
+        "--test-real-intent-format",
+        type=str,
+        default="",
+        help="Build real-like intent from live data, run real formatter path, and exit.",
+    )
     return parser.parse_args()
 
 
@@ -148,6 +166,192 @@ def _send_telegram_with_logging(*, kind: str, token: str, chat_id: str, text: st
         text=text,
         strict=strict,
     )
+
+
+def _approved_intent_notify_decision(
+    *,
+    telegram_token: str,
+    telegram_chat_id: str,
+    policy: str,
+    budget: int,
+    paper_mode: bool,
+    dryrun_notify: bool,
+    always_notify_intents: bool,
+) -> Dict[str, Any]:
+    telegram_enabled = bool(str(telegram_token or "").strip()) and bool(str(telegram_chat_id or "").strip())
+    policy_norm = str(policy or "events").strip().lower()
+    allowed = True
+    reason = "enabled"
+    if not telegram_enabled:
+        allowed = False
+        reason = "disabled_no_config"
+    elif policy_norm in {"off", "none", "disabled"}:
+        allowed = False
+        reason = "policy_off"
+    logging.info(
+        "TELEGRAM_POLICY_EVAL kind=intent policy=%s allowed=%s reason=%s",
+        policy_norm,
+        bool(allowed),
+        reason,
+    )
+    if not telegram_enabled:
+        return {
+            "should_notify": False,
+            "notify_reason": "DISABLED",
+            "policy": policy_norm,
+            "budget": int(budget),
+            "paper_mode": bool(paper_mode),
+            "dryrun_notify": bool(dryrun_notify),
+            "always_notify_intents": bool(always_notify_intents),
+        }
+    if policy_norm in {"off", "none", "disabled"}:
+        return {
+            "should_notify": False,
+            "notify_reason": "POLICY_OFF",
+            "policy": policy_norm,
+            "budget": int(budget),
+            "paper_mode": bool(paper_mode),
+            "dryrun_notify": bool(dryrun_notify),
+            "always_notify_intents": bool(always_notify_intents),
+        }
+    return {
+        "should_notify": True,
+        "notify_reason": "ENABLED",
+        "policy": policy_norm,
+        "budget": int(budget),
+        "paper_mode": bool(paper_mode),
+        "dryrun_notify": bool(dryrun_notify),
+        "always_notify_intents": bool(always_notify_intents),
+    }
+
+
+def _dispatch_intent_notification(
+    *,
+    symbol: str,
+    strategy: str,
+    side: str,
+    kind: str,
+    text: str,
+    entry: Any,
+    sl: Any,
+    tp: Any,
+    conf: Any,
+    source: str,
+    telegram_token: str,
+    telegram_chat_id: str,
+    should_notify: bool,
+    notify_reason: str,
+) -> str:
+    from scalper.notifier import get_last_telegram_meta, get_last_telegram_status
+
+    if not should_notify:
+        logging.info(
+            "TELEGRAM_PAYLOAD symbol=%s side=%s strategy=%s entry=%s sl=%s tp=%s conf=%s source=%s",
+            symbol,
+            side,
+            strategy,
+            str(entry),
+            str(sl),
+            str(tp),
+            str(conf),
+            str(source),
+        )
+        logging.info(
+            "INTENT_NOTIFY_BYPASSED reason=%s symbol=%s",
+            str(notify_reason or "DISABLED"),
+            symbol,
+        )
+        logging.info(
+            "INTENT_NOTIFY_RESULT symbol=%s strategy=%s side=%s status=DISABLED",
+            symbol,
+            strategy,
+            side,
+        )
+        return "DISABLED"
+    logging.info(
+        "INTENT_NOTIFY_START symbol=%s strategy=%s side=%s kind=%s",
+        symbol,
+        strategy,
+        side,
+        kind,
+    )
+    logging.info(
+        "TELEGRAM_PAYLOAD symbol=%s side=%s strategy=%s entry=%s sl=%s tp=%s conf=%s source=%s",
+        symbol,
+        side,
+        strategy,
+        str(entry),
+        str(sl),
+        str(tp),
+        str(conf),
+        str(source),
+    )
+    _send_telegram_with_logging(
+        kind=kind,
+        token=telegram_token,
+        chat_id=telegram_chat_id,
+        text=text,
+    )
+    status = str(get_last_telegram_status() or "SEND_FAILURE")
+    meta = get_last_telegram_meta()
+    sent_today = meta.get("sent_today")
+    budget = meta.get("budget")
+    if status == "BUDGET_BLOCK":
+        logging.info(
+            "INTENT_NOTIFY_RESULT symbol=%s strategy=%s side=%s status=%s sent_today=%s budget=%s",
+            symbol,
+            strategy,
+            side,
+            status,
+            sent_today,
+            budget,
+        )
+    else:
+        logging.info(
+            "INTENT_NOTIFY_RESULT symbol=%s strategy=%s side=%s status=%s",
+            symbol,
+            strategy,
+            side,
+            status,
+        )
+    return status
+
+
+def _validate_real_intent_pricing(
+    *,
+    symbol: str,
+    entry: Any,
+    sl: Any,
+    tp: Any,
+    market_px: Any,
+) -> tuple[bool, str]:
+    try:
+        e = float(entry)
+        s = float(sl)
+        t = float(tp)
+    except (TypeError, ValueError):
+        return (False, "missing_or_non_numeric_prices")
+    if e <= 0 or s <= 0 or t <= 0:
+        return (False, "non_positive_prices")
+    # Synthetic test payload pattern guard.
+    if abs(e - 100.0) <= 1e-8 and abs(s - 99.2) <= 1e-8 and abs(t - 101.2) <= 1e-8:
+        return (False, "synthetic_test_pattern_detected")
+    try:
+        m = float(market_px)
+    except (TypeError, ValueError):
+        m = 0.0
+    if m > 0:
+        diff_pct = abs((e - m) / m) * 100.0
+        if diff_pct > 20.0:
+            logging.error(
+                "PRICING_SANITY_FAIL symbol=%s entry=%.8f market_px=%.8f diff_pct=%.2f",
+                symbol,
+                e,
+                m,
+                diff_pct,
+            )
+            return (False, "pricing_sanity_fail")
+    return (True, "")
 
 def _atr14_from_candles(candles: List[Dict[str, Any]]) -> float:
     """Compute ATR(14) from list of candle dicts (high, low, close). Returns 0 if insufficient data."""
@@ -680,6 +884,277 @@ def run_test_telegram_formats(config_module) -> int:
     return 0
 
 
+def _codebase_conflict_check() -> Dict[str, Any]:
+    root = Path.cwd()
+    files: List[Path] = []
+    for p in list((root / "scalper").rglob("*.py")):
+        if ".venv" in str(p):
+            continue
+        files.append(p)
+    for p in (root / "bot.py", root / "config.py", root / "signals.py", root / "storage.py", root / "bybit.py", root / "telegram_notify.py"):
+        if p.exists():
+            files.append(p)
+    checked: List[str] = []
+    bad: List[str] = []
+    seen = set()
+    for p in files:
+        rp = str(p.resolve())
+        if rp in seen:
+            continue
+        seen.add(rp)
+        ok = True
+        try:
+            txt = p.read_text(encoding="utf-8", errors="replace")
+            has_marker = False
+            for line in txt.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("<<<<<<<") or stripped.startswith(">>>>>>>") or stripped == "=======":
+                    has_marker = True
+                    break
+            if has_marker:
+                ok = False
+                bad.append(str(p))
+        except Exception:
+            ok = False
+            bad.append(str(p))
+        logging.info("CODEBASE_CONFLICT_CHECK ok=%s file=%s", ok, str(p))
+        checked.append(str(p))
+    return {"ok": len(bad) == 0, "checked": checked, "bad": bad}
+
+
+def run_doctor(config_module) -> int:
+    from scalper.settings import sanitize_csv_env
+    from scalper.strategies.registry import parse_strategies_enabled_diagnostics
+
+    raw_watchlist = str(getattr(config_module, "_RAW_WATCHLIST", "") or "")
+    watchlist = sanitize_csv_env(raw_watchlist, uppercase=True)
+    print(f"WATCHLIST_SANITIZED raw_len={len(raw_watchlist)} parsed_len={len(watchlist)} symbols={watchlist}")
+
+    raw_enabled = str(getattr(config_module, "STRATEGIES_ENABLED", "") or "")
+    diag = parse_strategies_enabled_diagnostics(raw_enabled)
+    print(f"STRATEGIES_ENABLED raw={raw_enabled}")
+    print(f"STRATEGIES_ENABLED canonical={diag.get('canonical', [])}")
+    for item in (diag.get("unknown", []) or []):
+        print(f"UNKNOWN_STRATEGY raw={item.get('raw', '')} normalized={item.get('normalized', '')}")
+    print(f"ACTIVE_STRATEGIES={diag.get('canonical', [])}")
+
+    token_set = bool(str(getattr(config_module, "TELEGRAM_BOT_TOKEN", "") or "").strip())
+    chat_set = bool(str(getattr(config_module, "TELEGRAM_CHAT_ID", "") or "").strip())
+    print(f"TELEGRAM_CONFIG token_set={token_set} chat_set={chat_set}")
+
+    conflict = _codebase_conflict_check()
+    if conflict.get("ok", False):
+        print("CODEBASE_CONFLICT_CHECK OK")
+        print("DOCTOR_STATUS OK")
+        return 0
+    print(f"CODEBASE_CONFLICT_CHECK PROBLEMS files={conflict.get('bad', [])}")
+    print("DOCTOR_STATUS PROBLEMS FOUND")
+    return 2
+
+
+def run_test_intent_notify(
+    config_module,
+    *,
+    symbol: str,
+    side: str,
+    paper_mode: bool,
+    dryrun_notify: bool,
+    always_notify_intents: bool,
+) -> int:
+    from storage import load_paper_state
+    from telegram_format import format_intent_allow
+
+    sym = str(symbol or "").strip().upper()
+    side_u = str(side or "").strip().upper()
+    if not sym or side_u not in {"LONG", "SHORT"}:
+        logging.error("--test-intent-notify requires SYMBOL and SIDE(LONG|SHORT)")
+        return 2
+    policy_now = str(getattr(config_module, "TELEGRAM_POLICY", "events") or "events")
+    budget_now = int(getattr(config_module, "TELEGRAM_DAILY_BUDGET", 0) or 0)
+    state_now = load_paper_state()
+    msg = format_intent_allow(
+        {
+            "symbol": sym,
+            "side": side_u,
+            "strategy": "REV_SWEPT_RSI",
+            "confidence": 0.68,
+            "reason": "Synthetic approved intent pipeline test",
+            "intent_id": f"TEST_NOTIFY_{sym}_{side_u}",
+            "profile": "",
+            "meta": {},
+        },
+        {"reason": "allowed"},
+        {
+            "tf": str(getattr(config_module, "INTERVAL", "15")),
+            "entry": 100.0,
+            "sl": 99.2 if side_u == "LONG" else 100.8,
+            "tp": 101.2 if side_u == "LONG" else 98.8,
+            "sl_pct": 0.8,
+            "tp_pct": 1.2,
+            "qty": 1.0,
+            "notional": 100.0,
+            "bar_ts_used": datetime.now(timezone.utc).isoformat(),
+            "open_now": len(state_now.get("open_positions", []) or []),
+            "open_max": int(getattr(config_module, "MAX_OPEN_POSITIONS", 0) or 0),
+            "trades_today": int(state_now.get("trade_count_today", 0) or 0),
+            "cooldown_until_utc": str(state_now.get("cooldown_until_utc", "") or ""),
+            "telegram_format": "compact" if bool(getattr(config_module, "TELEGRAM_COMPACT", True)) else str(getattr(config_module, "TELEGRAM_FORMAT", "compact")),
+            "telegram_max_chars_compact": int(getattr(config_module, "TELEGRAM_MAX_CHARS_COMPACT", 900)),
+            "telegram_max_chars_verbose": int(getattr(config_module, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
+            "source": "test_intent",
+        },
+    )
+    logging.info("NOTIFY_PIPELINE mode=test_intent")
+    logging.info(
+        "INTENT_APPROVED symbol=%s strategy=%s side=%s conf=%.3f entry=%s sl=%s tp=%s",
+        sym,
+        "REV_SWEPT_RSI",
+        side_u,
+        0.68,
+        "100.0",
+        "99.2" if side_u == "LONG" else "100.8",
+        "101.2" if side_u == "LONG" else "98.8",
+    )
+    decision = _approved_intent_notify_decision(
+        telegram_token=str(getattr(config_module, "TELEGRAM_BOT_TOKEN", "") or ""),
+        telegram_chat_id=str(getattr(config_module, "TELEGRAM_CHAT_ID", "") or ""),
+        policy=policy_now,
+        budget=budget_now,
+        paper_mode=paper_mode,
+        dryrun_notify=dryrun_notify,
+        always_notify_intents=always_notify_intents,
+    )
+    logging.info(
+        "APPROVED_INTENT_DECISION symbol=%s should_notify=%s notify_reason=%s policy=%s budget=%s paper_mode=%s dryrun_notify=%s",
+        sym,
+        bool(decision.get("should_notify", False)),
+        str(decision.get("notify_reason", "DISABLED")),
+        str(decision.get("policy", "events")),
+        int(decision.get("budget", 0) or 0),
+        bool(decision.get("paper_mode", False)),
+        bool(decision.get("dryrun_notify", False)),
+    )
+    status = _dispatch_intent_notification(
+        symbol=sym,
+        strategy="REV_SWEPT_RSI",
+        side=side_u,
+        kind="intent",
+        text=msg,
+        entry=100.0,
+        sl=99.2 if side_u == "LONG" else 100.8,
+        tp=101.2 if side_u == "LONG" else 98.8,
+        conf=0.68,
+        source="test_intent",
+        telegram_token=str(getattr(config_module, "TELEGRAM_BOT_TOKEN", "") or ""),
+        telegram_chat_id=str(getattr(config_module, "TELEGRAM_CHAT_ID", "") or ""),
+        should_notify=bool(decision.get("should_notify", False)),
+        notify_reason=str(decision.get("notify_reason", "DISABLED")),
+    )
+    return 0 if status in {"SEND_SUCCESS", "POLICY_SKIP", "BUDGET_BLOCK", "DISABLED"} else 1
+
+
+def run_test_real_intent_format(config_module, symbol: str) -> int:
+    from bybit import fetch_klines
+    from paper_engine import compute_entry_sl_tp_for_display
+    from telegram_format import format_intent_allow
+
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        logging.error("--test-real-intent-format requires SYMBOL")
+        return 2
+    candles = fetch_klines(
+        symbol=sym,
+        interval=str(getattr(config_module, "INTERVAL", "15")),
+        limit=max(50, int(getattr(config_module, "LOOKBACK", 300) or 300)),
+    ) or []
+    if not candles:
+        logging.error("test-real-intent-format failed: no candles for %s", sym)
+        return 2
+    last = candles[-1] or {}
+    close_px = float(last.get("close", 0.0) or 0.0)
+    atr14 = 0.0
+    try:
+        atr14 = float(_atr14_from_candles(candles) or 0.0)
+    except Exception:
+        atr14 = 0.0
+    snapshot = {"close": close_px, "last_close": close_px, "atr14": atr14}
+    side = "LONG"
+    trade_intent = {
+        "symbol": sym,
+        "side": side,
+        "strategy": "REV_SWEPT_RSI",
+        "setup": "REV_SWEPT_RSI",
+        "direction": side,
+        "entry_type": "market",
+        "meta": {},
+        "intent_id": f"REAL_FMT_{sym}",
+    }
+    display = compute_entry_sl_tp_for_display(
+        trade_intent,
+        candles,
+        snapshot,
+        sl_atr_mult=float(getattr(config_module, "PAPER_SL_ATR", 1.3) or 1.3),
+        tp_atr_mult=float(getattr(config_module, "PAPER_TP_ATR", 2.0) or 2.0),
+    )
+    if not display:
+        logging.error("test-real-intent-format failed: no display values for %s", sym)
+        return 2
+    ok_price, reason = _validate_real_intent_pricing(
+        symbol=sym,
+        entry=display.get("entry"),
+        sl=display.get("sl"),
+        tp=display.get("tp"),
+        market_px=close_px,
+    )
+    if not ok_price:
+        logging.error("INVALID_APPROVED_INTENT_PRICING symbol=%s reason=%s", sym, reason)
+        return 2
+    logging.info("NOTIFY_PIPELINE mode=real_intent")
+    msg = format_intent_allow(
+        {
+            "symbol": sym,
+            "side": side,
+            "strategy": "REV_SWEPT_RSI",
+            "confidence": 0.68,
+            "reason": "Real formatter diagnostic path",
+            "intent_id": f"REAL_FMT_{sym}",
+            "meta": {},
+        },
+        {"reason": "allowed"},
+        {
+            "tf": str(getattr(config_module, "INTERVAL", "15")),
+            "entry": display.get("entry"),
+            "sl": display.get("sl"),
+            "tp": display.get("tp"),
+            "sl_pct": display.get("sl_pct"),
+            "tp_pct": display.get("tp_pct"),
+            "bar_ts_used": str(last.get("timestamp_utc", last.get("ts", "")) or ""),
+            "open_now": 0,
+            "open_max": int(getattr(config_module, "MAX_OPEN_POSITIONS", 0) or 0),
+            "trades_today": 0,
+            "cooldown_until_utc": "",
+            "telegram_format": "compact",
+            "telegram_max_chars_compact": int(getattr(config_module, "TELEGRAM_MAX_CHARS_COMPACT", 900)),
+            "telegram_max_chars_verbose": int(getattr(config_module, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
+            "source": "real_intent",
+        },
+    )
+    if not msg:
+        return 2
+    logging.info(
+        "TELEGRAM_PAYLOAD symbol=%s side=%s strategy=%s entry=%s sl=%s tp=%s conf=%s source=real_intent",
+        sym,
+        side,
+        "REV_SWEPT_RSI",
+        str(display.get("entry")),
+        str(display.get("sl")),
+        str(display.get("tp")),
+        "0.68",
+    )
+    print(msg)
+    return 0
+
+
 def run_reconcile(config_module, symbol: str) -> int:
     from bybit import fetch_klines
     from indicators_engine import precompute_tf_indicators
@@ -848,6 +1323,7 @@ def run_scan_cycle(
     telegram_max_chars_compact: int,
     telegram_max_chars_verbose: int,
     paper_mode: bool = False,
+    dryrun_notify: bool = False,
     telegram_exit_alerts: bool = True,
 ) -> Dict[str, Any]:
     from bybit import fetch_klines
@@ -936,8 +1412,6 @@ def run_scan_cycle(
                     logging.warning("BTC_REGIME high_volatility")
     except Exception as _e:
         pass
-    top_telegram_n = 1 if btc_atr_pct > 1.8 else 2
-
     from mtf import build_mtf_snapshot, compute_4h_bias, log_mtf_ready
 
     snapshot_by_symbol: Dict[str, Dict[int, Dict[str, Any]]] = {}
@@ -958,7 +1432,6 @@ def run_scan_cycle(
     bias_list: List[Dict[str, Any]] = []
     has_any_allow = False
     all_near_miss_candidates: List[Dict[str, Any]] = []
-    deferred_telegram_allows: List[tuple] = []  # (score, symbol, allow_msg, open_msg or None)
     cycle_counts = {
         "total": 0,
         "blocked_after_candidate": 0,
@@ -1668,6 +2141,9 @@ def run_scan_cycle(
                         "symbol": intent_symbol,
                         "side": intent_side,
                         "strategy": intent_strategy,
+                        "entry": signal.get("entry"),
+                        "sl": signal.get("sl", signal.get("sl_hint")),
+                        "tp": signal.get("tp", signal.get("tp_hint")),
                         "reason": intent_reason,
                         "confidence": intent_confidence,
                         "ts": intent_ts,
@@ -1697,6 +2173,16 @@ def run_scan_cycle(
                             "CANDIDATE_APPROVED symbol=%s strategy=%s",
                             intent_symbol,
                             intent_strategy,
+                        )
+                        logging.info(
+                            "INTENT_APPROVED symbol=%s strategy=%s side=%s conf=%.3f entry=%s sl=%s tp=%s",
+                            intent_symbol,
+                            intent_strategy,
+                            str(intent_side).upper(),
+                            float(intent_confidence),
+                            str(signal.get("entry", signal.get("close", ""))),
+                            str(signal.get("sl", signal.get("sl_hint", ""))),
+                            str(signal.get("tp", signal.get("tp_hint", ""))),
                         )
                         _pending_open_msg: Optional[str] = None
                         snap = symbol_context.get("market_snapshot", {}) or {}
@@ -1824,6 +2310,18 @@ def run_scan_cycle(
                                 _pending_open_msg = open_msg
                             else:
                                 _warn_missing_telegram_once()
+                        policy_now = str(getattr(_config, "TELEGRAM_POLICY", "events") or "events")
+                        budget_now = int(getattr(_config, "TELEGRAM_DAILY_BUDGET", 0) or 0)
+                        notify_decision = _approved_intent_notify_decision(
+                            telegram_token=telegram_token,
+                            telegram_chat_id=telegram_chat_id,
+                            policy=policy_now,
+                            budget=budget_now,
+                            paper_mode=paper_mode,
+                            dryrun_notify=dryrun_notify,
+                            always_notify_intents=always_notify_intents,
+                        )
+                        logging.info("NOTIFY_PIPELINE mode=real_intent")
                         if telegram_token and telegram_chat_id:
                             meta = dict(signal.get("meta") or {})
                             profile = str(meta.get("profile", "") or signal.get("profile", "") or "").strip()
@@ -1862,12 +2360,52 @@ def run_scan_cycle(
                                     _allow_ctx_tp = _display["tp"]
                                     _allow_ctx_sl_pct = _display["sl_pct"]
                                     _allow_ctx_tp_pct = _display["tp_pct"]
-                                else:
-                                    _last_close = float(
-                                        (candles[-1] if candles else {}).get("close", 0.0) or 0.0
-                                    )
-                                    if _last_close > 0:
-                                        _allow_ctx_entry = _last_close
+                            approved_entry = _allow_ctx_entry
+                            approved_sl = _allow_ctx_sl
+                            approved_tp = _allow_ctx_tp
+                            notifier_entry = _allow_ctx_entry
+                            notifier_sl = _allow_ctx_sl
+                            notifier_tp = _allow_ctx_tp
+                            formatter_entry = _allow_ctx_entry
+                            formatter_sl = _allow_ctx_sl
+                            formatter_tp = _allow_ctx_tp
+                            logging.info(
+                                "INTENT_PRICE_LINEAGE symbol=%s strategy=%s side=%s candidate_entry=%s candidate_sl=%s candidate_tp=%s approved_entry=%s approved_sl=%s approved_tp=%s notifier_entry=%s notifier_sl=%s notifier_tp=%s formatter_entry=%s formatter_sl=%s formatter_tp=%s",
+                                intent_symbol,
+                                intent_strategy,
+                                str(intent_side).upper(),
+                                str(signal.get("entry", signal.get("close", ""))),
+                                str(signal.get("sl", signal.get("sl_hint", ""))),
+                                str(signal.get("tp", signal.get("tp_hint", ""))),
+                                str(approved_entry),
+                                str(approved_sl),
+                                str(approved_tp),
+                                str(notifier_entry),
+                                str(notifier_sl),
+                                str(notifier_tp),
+                                str(formatter_entry),
+                                str(formatter_sl),
+                                str(formatter_tp),
+                            )
+                            market_px_ref = float(
+                                snap.get("last_close", (candles[-1] if candles else {}).get("close", 0.0) or 0.0)
+                                or 0.0
+                            )
+                            pricing_ok, pricing_reason = _validate_real_intent_pricing(
+                                symbol=intent_symbol,
+                                entry=approved_entry,
+                                sl=approved_sl,
+                                tp=approved_tp,
+                                market_px=market_px_ref,
+                            )
+                            if not pricing_ok:
+                                logging.error(
+                                    "INVALID_APPROVED_INTENT_PRICING symbol=%s reason=%s",
+                                    intent_symbol,
+                                    pricing_reason,
+                                )
+                                notify_decision["should_notify"] = False
+                                notify_decision["notify_reason"] = "INVALID_APPROVED_INTENT_PRICING"
                             msg = format_intent_allow(
                                 {
                                     "symbol": intent_symbol,
@@ -1924,16 +2462,87 @@ def run_scan_cycle(
                                         )
                                         or ""
                                     ),
+                                    "source": "real_intent",
                                     **format_caps,
                                 },
+                            )
+                            if not msg:
+                                notify_decision["should_notify"] = False
+                                notify_decision["notify_reason"] = "FORMATTER_MISSING_PRICE_FIELDS"
+                            logging.info(
+                                "APPROVED_INTENT_DECISION symbol=%s should_notify=%s notify_reason=%s policy=%s budget=%s paper_mode=%s dryrun_notify=%s",
+                                intent_symbol,
+                                bool(notify_decision.get("should_notify", False)),
+                                str(notify_decision.get("notify_reason", "DISABLED")),
+                                str(notify_decision.get("policy", "events")),
+                                int(notify_decision.get("budget", 0) or 0),
+                                bool(notify_decision.get("paper_mode", False)),
+                                bool(notify_decision.get("dryrun_notify", False)),
                             )
                             if always_notify_intents:
                                 msg = f"[ALLOW] {msg}"
                             score = _compute_signal_score(signal, snap, candles, atr_pct)
                             logging.info("SIGNAL_RANK %s %s", score, symbol)
-                            deferred_telegram_allows.append((score, symbol, msg, _pending_open_msg))
+                            _dispatch_intent_notification(
+                                symbol=intent_symbol,
+                                strategy=intent_strategy,
+                                side=str(intent_side).upper(),
+                                kind="intent",
+                                text=msg,
+                                entry=_allow_ctx_entry,
+                                sl=_allow_ctx_sl,
+                                tp=_allow_ctx_tp,
+                                conf=float(intent_confidence),
+                                source="real_intent",
+                                telegram_token=telegram_token,
+                                telegram_chat_id=telegram_chat_id,
+                                should_notify=bool(notify_decision.get("should_notify", False)),
+                                notify_reason=str(notify_decision.get("notify_reason", "DISABLED")),
+                            )
+                            if _pending_open_msg:
+                                _dispatch_intent_notification(
+                                    symbol=intent_symbol,
+                                    strategy=intent_strategy,
+                                    side=str(intent_side).upper(),
+                                    kind="intent",
+                                    text=_pending_open_msg,
+                                    entry=_allow_ctx_entry,
+                                    sl=_allow_ctx_sl,
+                                    tp=_allow_ctx_tp,
+                                    conf=float(intent_confidence),
+                                    source="real_intent",
+                                    telegram_token=telegram_token,
+                                    telegram_chat_id=telegram_chat_id,
+                                    should_notify=bool(notify_decision.get("should_notify", False)),
+                                    notify_reason=str(notify_decision.get("notify_reason", "DISABLED")),
+                                )
                         else:
-                            _warn_missing_telegram_once()
+                            logging.info(
+                                "APPROVED_INTENT_DECISION symbol=%s should_notify=%s notify_reason=%s policy=%s budget=%s paper_mode=%s dryrun_notify=%s",
+                                intent_symbol,
+                                bool(notify_decision.get("should_notify", False)),
+                                str(notify_decision.get("notify_reason", "DISABLED")),
+                                str(notify_decision.get("policy", "events")),
+                                int(notify_decision.get("budget", 0) or 0),
+                                bool(notify_decision.get("paper_mode", False)),
+                                bool(notify_decision.get("dryrun_notify", False)),
+                            )
+                            _dispatch_intent_notification(
+                                symbol=intent_symbol,
+                                strategy=intent_strategy,
+                                side=str(intent_side).upper(),
+                                kind="intent",
+                                text="",
+                                entry=signal.get("entry", signal.get("close", "")),
+                                sl=signal.get("sl", signal.get("sl_hint", "")),
+                                tp=signal.get("tp", signal.get("tp_hint", "")),
+                                conf=float(intent_confidence),
+                                source="real_intent",
+                                telegram_token=telegram_token,
+                                telegram_chat_id=telegram_chat_id,
+                                should_notify=bool(notify_decision.get("should_notify", False)),
+                                notify_reason=str(notify_decision.get("notify_reason", "DISABLED")),
+                            )
                     else:
                         logging.warning(
                             "Risk gate blocked intent (%s | %s | bar_ts_used=%s): %s",
@@ -2032,23 +2641,6 @@ def run_scan_cycle(
             )
             run_context["symbols"].append(symbol_context)
 
-    # Send Telegram alerts only for top N signals per scan (by score). N=1 when BTC ATR%>1.8, else 2.
-    deferred_telegram_allows.sort(key=lambda x: (-x[0], x[1]))
-    for _score, _sym, allow_msg, open_msg in deferred_telegram_allows[:top_telegram_n]:
-        if telegram_token and telegram_chat_id:
-            _send_telegram_with_logging(
-                kind="intent",
-                token=telegram_token,
-                chat_id=telegram_chat_id,
-                text=allow_msg,
-            )
-            if open_msg:
-                _send_telegram_with_logging(
-                    kind="intent",
-                    token=telegram_token,
-                    chat_id=telegram_chat_id,
-                    text=open_msg,
-                )
     if always_notify_intents and not has_any_allow:
         blocked_summary = (
             f"SCAN_BLOCKED_SUMMARY total={int(cycle_counts.get('total', 0))} "
@@ -2432,6 +3024,7 @@ def _run_one_scan_iteration(
         telegram_max_chars_compact=int(getattr(config_module, "TELEGRAM_MAX_CHARS_COMPACT", 900)),
         telegram_max_chars_verbose=int(getattr(config_module, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
         paper_mode=paper_mode,
+        dryrun_notify=bool(dryrun_notify_always),
         telegram_exit_alerts=bool(getattr(config_module, "TELEGRAM_EXIT_ALERTS", True)),
     )
     from storage import set_selected_watchlist, set_stall_alerted
@@ -2628,8 +3221,22 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
     if symbols_override:
         logging.info("CLI symbols override active: %s", ",".join(symbols_override))
     paper_mode = bool(getattr(args, "paper", False))
+    dryrun_notify = bool(getattr(args, "dryrun_notify_always", False))
+    always_notify_intents = bool(dryrun_notify or getattr(config, "ALWAYS_NOTIFY_INTENTS", False))
     if paper_mode:
         logging.info("PAPER mode enabled (--paper). No exchange private endpoints are used.")
+    logging.info(
+        "NOTIFY_CONFIG telegram_enabled=%s policy=%s budget=%s paper_mode=%s dryrun_notify=%s always_notify_intents=%s disable_scan_summary=%s notify_scan_summary=%s",
+        bool(str(getattr(config, "TELEGRAM_BOT_TOKEN", "") or "").strip())
+        and bool(str(getattr(config, "TELEGRAM_CHAT_ID", "") or "").strip()),
+        str(getattr(config, "TELEGRAM_POLICY", "events") or "events"),
+        int(getattr(config, "TELEGRAM_DAILY_BUDGET", 0) or 0),
+        bool(paper_mode),
+        bool(dryrun_notify),
+        bool(always_notify_intents),
+        bool(getattr(config, "DISABLE_SCAN_SUMMARY", True)),
+        bool(getattr(config, "NOTIFY_SCAN_SUMMARY", False)),
+    )
 
     if args.cooldown_minutes <= 0:
         logging.error("--cooldown-minutes must be a positive integer.")
@@ -2639,6 +3246,19 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
         return 2
     if args.test_telegram_formats:
         return run_test_telegram_formats(config)
+    if args.doctor:
+        return run_doctor(config)
+    if args.test_intent_notify:
+        return run_test_intent_notify(
+            config,
+            symbol=str(args.test_intent_notify[0]),
+            side=str(args.test_intent_notify[1]),
+            paper_mode=paper_mode,
+            dryrun_notify=dryrun_notify,
+            always_notify_intents=always_notify_intents,
+        )
+    if str(getattr(args, "test_real_intent_format", "") or "").strip():
+        return run_test_real_intent_format(config, str(args.test_real_intent_format))
     if args.reconcile:
         return run_reconcile(config, args.reconcile)
     if args.sizing_test:
@@ -2694,16 +3314,23 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
                 logging.warning("Scan loop worker did not stop within timeout; exiting anyway.")
         return 0
     if args.test_telegram:
+        from scalper.notifier import get_last_telegram_status
+
         ok = _send_telegram_with_logging(
             kind="test",
             token=config.TELEGRAM_BOT_TOKEN,
             chat_id=config.TELEGRAM_CHAT_ID,
             text="Telegram OK (test)",
+            strict=True,
         )
         if ok:
             logging.info("Telegram test message sent. Exiting --test-telegram mode.")
             return 0
-        logging.error("Telegram test failed. Check token/chat_id/network.")
+        status = get_last_telegram_status()
+        if status == "POLICY_SKIP":
+            logging.warning("Telegram test skipped by policy.")
+            return 0
+        logging.error("Telegram test failed due to send failure. Check token/chat_id/network.")
         return 1
 
     if config.WATCHLIST_MODE == "static" and not config.WATCHLIST:
@@ -2814,7 +3441,7 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
                 or getattr(config, "TELEGRAM_SEND_BLOCKED", False)
                 or getattr(config, "RISK_NOTIFY_BLOCKED_TELEGRAM", False)
             ),
-            always_notify_intents=bool(args.dryrun_notify_always or getattr(config, "ALWAYS_NOTIFY_INTENTS", False)),
+            always_notify_intents=bool(always_notify_intents),
             signal_debug=config.SIGNAL_DEBUG,
             early_enabled=bool(getattr(config, "EARLY_ENABLED", False)),
             early_tf=str(getattr(config, "EARLY_TF", 5)),
@@ -2834,6 +3461,7 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
             telegram_max_chars_compact=int(getattr(config, "TELEGRAM_MAX_CHARS_COMPACT", 900)),
             telegram_max_chars_verbose=int(getattr(config, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
             paper_mode=paper_mode,
+            dryrun_notify=bool(dryrun_notify),
             telegram_exit_alerts=bool(getattr(config, "TELEGRAM_EXIT_ALERTS", True)),
         )
         from storage import set_last_scan_ts, set_selected_watchlist, set_stall_alerted
@@ -2892,7 +3520,7 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
                         or getattr(config, "TELEGRAM_SEND_BLOCKED", False)
                         or getattr(config, "RISK_NOTIFY_BLOCKED_TELEGRAM", False)
                     ),
-                    always_notify_intents=bool(args.dryrun_notify_always or getattr(config, "ALWAYS_NOTIFY_INTENTS", False)),
+                    always_notify_intents=bool(always_notify_intents),
                     signal_debug=config.SIGNAL_DEBUG,
                     early_enabled=bool(getattr(config, "EARLY_ENABLED", False)),
                     early_tf=str(getattr(config, "EARLY_TF", 5)),
@@ -2912,6 +3540,7 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
                     telegram_max_chars_compact=int(getattr(config, "TELEGRAM_MAX_CHARS_COMPACT", 900)),
                     telegram_max_chars_verbose=int(getattr(config, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
                     paper_mode=paper_mode,
+                    dryrun_notify=bool(dryrun_notify),
                     telegram_exit_alerts=bool(getattr(config, "TELEGRAM_EXIT_ALERTS", True)),
                 )
                 set_last_scan_ts(int(time.time()))

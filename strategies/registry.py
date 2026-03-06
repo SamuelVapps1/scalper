@@ -7,6 +7,7 @@ import pandas as pd
 
 from indicators_engine import precompute_tf_indicators
 from scalper.models import StrategyResult, TradeIntent, intent_from_dict
+from scalper.settings import sanitize_csv_env
 from scalper.strategies.base import Strategy, StrategyContext
 from scalper.strategies.breakout_retest_go import generate_intents as s2_breakout_generate
 from scalper.strategies.liquidity_sweep_reversal import generate_intents as s5_lsr_generate
@@ -82,15 +83,98 @@ HYBRID_STRATEGIES: Dict[str, Tuple[str, Any]] = {
     "rev_swept_rsi": ("REV_SWEPT_RSI", rev_swept_rsi_generate),
 }
 
+CANONICAL_STRATEGY_TO_KEY: Dict[str, str] = {
+    "RB_RTG": "breakout_retest_go",
+    "TP_EMA20": "trend_pullback",
+    "FB_FADE": "liquidity_sweep_reversal",
+    "REV_SWEPT_RSI": "rev_swept_rsi",
+    # keep direct names available
+    "TREND_REVERSAL": "trend_reversal",
+    "VOL_EXPANSION": "vol_expansion",
+    "LIQUIDITY_SWEEP_REVERSAL": "liquidity_sweep_reversal",
+}
+
+STRATEGY_ALIASES: Dict[str, str] = {
+    "RB_RTG": "RB_RTG",
+    "RANGE_BREAKOUT_RETEST_GO": "RB_RTG",
+    "BREAKOUT_RETEST_GO": "RB_RTG",
+    "TP_EMA20": "TP_EMA20",
+    "TREND_PULLBACK": "TP_EMA20",
+    "FB_FADE": "FB_FADE",
+    "FAILED_BREAKOUT_FADE": "FB_FADE",
+    "LSR": "FB_FADE",
+    "LIQUIDITY_SWEEP_REVERSAL": "FB_FADE",
+    "REV": "REV_SWEPT_RSI",
+    "REV_SWEPT_RSI": "REV_SWEPT_RSI",
+    "TREND_REVERSAL": "TREND_REVERSAL",
+    "VOL_EXPANSION": "VOL_EXPANSION",
+}
+
+HYBRID_KEY_TO_CANONICAL: Dict[str, str] = {
+    "trend_pullback": "TP_EMA20",
+    "breakout_retest_go": "RB_RTG",
+    "trend_reversal": "TREND_REVERSAL",
+    "vol_expansion": "VOL_EXPANSION",
+    "liquidity_sweep_reversal": "FB_FADE",
+    "rev_swept_rsi": "REV_SWEPT_RSI",
+}
+
+
+def normalize_strategy_name(raw_name: str) -> str:
+    token = str(raw_name or "").strip()
+    if not token:
+        return ""
+    upper = token.upper()
+    if upper in STRATEGY_ALIASES:
+        return STRATEGY_ALIASES[upper]
+    lower = token.lower()
+    if lower in HYBRID_KEY_TO_CANONICAL:
+        return HYBRID_KEY_TO_CANONICAL[lower]
+    return ""
+
+
+def parse_strategies_enabled_diagnostics(raw: str) -> Dict[str, Any]:
+    tokens = sanitize_csv_env(str(raw or ""), uppercase=False)
+    if any(t in {"all", "*"} for t in [x.lower() for x in tokens]):
+        canonical_all = list(dict.fromkeys(HYBRID_KEY_TO_CANONICAL.values()))
+        keys_all = [CANONICAL_STRATEGY_TO_KEY[c] for c in canonical_all if c in CANONICAL_STRATEGY_TO_KEY]
+        # Add direct-only mapped keys not in canonical map.
+        for key in HYBRID_STRATEGIES.keys():
+            if key not in keys_all:
+                keys_all.append(key)
+        return {
+            "raw": str(raw or ""),
+            "tokens": tokens,
+            "canonical": canonical_all,
+            "keys": keys_all,
+            "unknown": [],
+        }
+    canonical: List[str] = []
+    unknown: List[Dict[str, str]] = []
+    for tok in tokens:
+        norm = normalize_strategy_name(tok)
+        if not norm:
+            unknown.append({"raw": tok, "normalized": tok.strip().upper()})
+            continue
+        if norm not in canonical:
+            canonical.append(norm)
+    keys: List[str] = []
+    for c in canonical:
+        key = CANONICAL_STRATEGY_TO_KEY.get(c)
+        if key and key in HYBRID_STRATEGIES and key not in keys:
+            keys.append(key)
+    return {
+        "raw": str(raw or ""),
+        "tokens": tokens,
+        "canonical": canonical,
+        "keys": keys,
+        "unknown": unknown,
+    }
+
 
 def _parse_strategies_enabled(raw: str) -> List[str]:
-    raw = str(raw or "").strip()
-    if not raw:
-        return []
-    if raw.lower() in ("all", "*"):
-        return list(HYBRID_STRATEGIES.keys())
-    parts = [p.strip().lower() for p in raw.split(",") if p.strip()]
-    return [p for p in parts if p in HYBRID_STRATEGIES]
+    diag = parse_strategies_enabled_diagnostics(raw)
+    return list(diag.get("keys", []) or [])
 
 
 def _apply_confidence_adjustment(intent: Intent, bias_info: Dict[str, Any]) -> float:
@@ -160,6 +244,7 @@ def run_hybrid_strategies_for_symbol(
             logging.debug("HYBRID_STRATEGY_SKIP %s %s disabled_by_REV_ENABLED", symbol, setup_name)
             continue
         try:
+            logging.info("STRATEGY_RUN symbol=%s strategy=%s started", symbol, setup_name)
             source_df = df_5m if key in {"rev_swept_rsi"} else df
             strategy_ctx = dict(ctx)
             if key in {"rev_swept_rsi"}:
@@ -170,6 +255,7 @@ def run_hybrid_strategies_for_symbol(
         except Exception as exc:  # pragma: no cover - defensive
             logging.debug("HYBRID_STRATEGY_ERROR %s %s: %s", symbol, setup_name, exc)
             continue
+        logging.info("STRATEGY_DONE symbol=%s strategy=%s candidate_count=%d", symbol, setup_name, len(intents or []))
         for intent in intents:
             # Ensure naming consistency.
             if not intent.setup:

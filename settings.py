@@ -38,6 +38,24 @@ _ENV_BOOTSTRAP_STATE = {
 _TELEGRAM_KEYS = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
 
 
+def sanitize_csv_env(value: str, *, uppercase: bool = True) -> List[str]:
+    """
+    Parse comma-separated env safely:
+    - strips inline comments (# ...)
+    - trims whitespace
+    - drops empty tokens
+    - optional uppercase normalization
+    """
+    txt = str(value or "")
+    # Strip inline comments (everything after first #).
+    if "#" in txt:
+        txt = txt.split("#", 1)[0]
+    items = [p.strip() for p in txt.split(",") if p.strip()]
+    if uppercase:
+        return [p.upper() for p in items]
+    return items
+
+
 def _resolve_env_path() -> str | None:
     env_path_override = os.getenv("ENV_PATH", "").strip()
     if env_path_override:
@@ -438,7 +456,7 @@ class RiskSettings(BaseSettingsV1):
 
     @property
     def watchlist(self) -> List[str]:
-        return [s.strip().upper() for s in str(self.watchlist_raw or "").split(",") if s.strip()]
+        return sanitize_csv_env(str(self.watchlist_raw or ""), uppercase=True)
 
     @property
     def watchlist_refresh_min(self) -> int:
@@ -446,11 +464,11 @@ class RiskSettings(BaseSettingsV1):
 
     @property
     def watchlist_exclude_prefixes(self) -> List[str]:
-        return [item.strip() for item in str(self.watchlist_exclude_prefixes_raw or "").split(",") if item.strip()]
+        return sanitize_csv_env(str(self.watchlist_exclude_prefixes_raw or ""), uppercase=False)
 
     @property
     def watchlist_exclude_symbols(self) -> List[str]:
-        return [item.strip().upper() for item in str(self.watchlist_exclude_symbols_raw or "").split(",") if item.strip()]
+        return sanitize_csv_env(str(self.watchlist_exclude_symbols_raw or ""), uppercase=True)
 
 
 class StrategyV3Settings(BaseSettingsV1):
@@ -517,6 +535,9 @@ class StrategyV3Settings(BaseSettingsV1):
         values["retest_confirm_mode"] = mode if mode in {"none", "ema20", "bos"} else "bos"
         values["bos_lookback_5m"] = max(1, int(values.get("bos_lookback_5m", 20)))
         values["top_intents_per_scan"] = max(1, int(values.get("top_intents_per_scan", 3)))
+        values["strategies_enabled"] = ",".join(
+            sanitize_csv_env(str(values.get("strategies_enabled", "") or ""), uppercase=False)
+        )
         values["lsr_lookback_bars"] = max(5, int(values.get("lsr_lookback_bars", 20)))
         values["lsr_min_wick_ratio"] = max(0.0, min(1.0, float(values.get("lsr_min_wick_ratio", 0.5))))
         values["lsr_ema_tol_pct"] = max(0.0, float(values.get("lsr_ema_tol_pct", 0.003)))

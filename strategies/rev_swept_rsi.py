@@ -233,6 +233,10 @@ def evaluate_reconcile(df_5m: pd.DataFrame, ctx: Dict[str, Any]) -> Dict[str, An
         "prev_swing_low": prev_swing_low,
         "prev_swing_high": prev_swing_high,
         "entry_mode": mode,
+        "ctx_long_ok": ctx_long_ok,
+        "ctx_short_ok": ctx_short_ok,
+        "entry_long_ok": entry_long_ok,
+        "entry_short_ok": entry_short_ok,
     }
     return out
 
@@ -246,8 +250,6 @@ def generate_intents(df: pd.DataFrame, ctx: Dict[str, Any]) -> List[Intent]:
     p = _params(ctx.get("settings"))
     recon = evaluate_reconcile(df, ctx)
     vals = dict(recon.get("values", {}) or {})
-    if not vals:
-        return []
 
     cur = df.iloc[-1]
     close = float(cur.get("close", 0) or 0)
@@ -256,6 +258,38 @@ def generate_intents(df: pd.DataFrame, ctx: Dict[str, Any]) -> List[Intent]:
     atr14 = float(cur.get("atr14", 0) or 0)
     bar_ts = str(cur.get("ts", ctx.get("bar_ts_used", "")) or "")
     intents: List[Intent] = []
+
+    if not vals:
+        return []
+
+    sweep_found = bool(vals.get("sweep_bull") or vals.get("sweep_bear"))
+    div_found = bool(vals.get("bull_div") or vals.get("bear_div"))
+    ema_ctx_ok = bool(vals.get("ctx_long_ok") or vals.get("ctx_short_ok"))
+    trend_ctx_ok = ema_ctx_ok
+    entry_ok = bool(vals.get("entry_long_ok") or vals.get("entry_short_ok"))
+    rsi_value = float(vals.get("rsi", 0.0) or 0.0)
+    ema200_dist = float(vals.get("ema200_dist", 0.0) or 0.0)
+    atr_pct_5m = float(vals.get("atr_pct_5m", 0.0) or 0.0)
+
+    if not (recon.get("ok_long") or recon.get("ok_short")):
+        reasons = list(recon.get("reasons_long", []) or []) + list(recon.get("reasons_short", []) or [])
+        reason = ",".join(sorted(set([r for r in reasons if r]))) or "conditions_not_met"
+        logging.info(
+            "REV_NO_CANDIDATE symbol=%s reason=%s sweep_found=%s divergence_found=%s "
+            "ema200_context_ok=%s trend_context_ok=%s entry_trigger_ok=%s rsi_value=%.3f "
+            "ema200_dist_pct=%.6f atr_pct_5m=%.4f",
+            symbol,
+            reason,
+            sweep_found,
+            div_found,
+            ema_ctx_ok,
+            trend_ctx_ok,
+            entry_ok,
+            rsi_value,
+            ema200_dist,
+            atr_pct_5m,
+        )
+        return []
 
     if recon.get("ok_long"):
         sl = low - p["sl_atr_mult"] * atr14 - p["sl_buffer_atr"] * atr14
