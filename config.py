@@ -1,4 +1,6 @@
 import os
+import importlib.util
+from pathlib import Path
 from typing import List
 
 from dotenv import load_dotenv
@@ -36,3 +38,22 @@ SCAN_SECONDS = int(os.getenv("SCAN_SECONDS", "60"))
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", os.getenv("CHAT_ID", ""))
+
+_ROOT_CONFIG = None
+
+
+def _root_config():
+    global _ROOT_CONFIG
+    if _ROOT_CONFIG is None:
+        root_config_path = Path(__file__).resolve().parent.parent / "config.py"
+        spec = importlib.util.spec_from_file_location("_root_config", root_config_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("Unable to resolve project root config module")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _ROOT_CONFIG = module
+    return _ROOT_CONFIG
+
+
+def __getattr__(name: str):
+    return getattr(_root_config(), name)

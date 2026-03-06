@@ -73,3 +73,8 @@ def save_paper_state(state: Dict[str, Any]) -> None:
         if not _save_fail_logged:
             _LOG.info("paper_state_save_failed error=%s", exc.__class__.__name__)
             _save_fail_logged = True
+
+
+def __getattr__(name: str):
+    """Delegate missing attributes to canonical root storage module."""
+    return getattr(_root_storage(), name)

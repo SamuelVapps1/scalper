@@ -11,7 +11,7 @@ def evaluate_intent(intent: Dict[str, Any], state: Dict[str, Any], now_ts: int) 
     """
     from scalper.risk_engine_core import RiskEngine
     from scalper.settings import get_settings
-    import storage as state_store
+    import scalper.storage as state_store
 
     _ = now_ts
     engine = RiskEngine(state, get_settings().risk, state_store)

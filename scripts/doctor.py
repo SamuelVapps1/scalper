@@ -44,7 +44,7 @@ def main():
 
     # paper state
     try:
-        from storage import load_paper_state
+        from scalper.storage import load_paper_state
 
         state = load_paper_state() or {}
         open_positions = [p for p in (state.get("open_positions") or []) if isinstance(p, dict)]

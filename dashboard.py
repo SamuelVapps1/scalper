@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from storage import get_risk_metrics
+from scalper.storage import get_risk_metrics
 
 
 def _fmt_float(value: Any, digits: int = 4) -> str:
