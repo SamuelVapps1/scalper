@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import argparse
 import logging
 import time
@@ -119,11 +120,16 @@ def run_scan_cycle(
             logging.exception("Scan failed for %s: %s", symbol, exc)
 
     logging.info("SCAN_SUMMARY symbols_ok=%d symbols_failed=%d", scanned_ok, scanned_failed)
+=======
+from scalper.scanner import Scanner, parse_args, setup_logging
+from scalper.settings import get_settings
+>>>>>>> 4cfdd8fe6584fa7b2772b45743f088df40182329
 
 
 def main() -> int:
     args = parse_args()
     setup_logging(args.log_level)
+<<<<<<< HEAD
 
     if args.cooldown_minutes <= 0:
         logging.error("--cooldown-minutes must be a positive integer.")
@@ -215,6 +221,14 @@ def main() -> int:
             telegram_chat_id=TELEGRAM_CHAT_ID,
         )
         time.sleep(SCAN_SECONDS)
+=======
+    get_settings()
+
+    import config
+
+    scanner = Scanner(config, args)
+    return scanner.run()
+>>>>>>> 4cfdd8fe6584fa7b2772b45743f088df40182329
 
 
 if __name__ == "__main__":

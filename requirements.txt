@@ -1,3 +1,8 @@
 requests
 python-dotenv
 pandas
+<<<<<<< HEAD
+=======
+fastapi
+uvicorn
+>>>>>>> 4cfdd8fe6584fa7b2772b45743f088df40182329
