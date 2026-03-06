@@ -4,7 +4,7 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, List
+from typing import List
 
 try:
     from pydantic.v1 import BaseModel, Field, root_validator
@@ -12,15 +12,12 @@ except ImportError:
     from pydantic import BaseModel, Field, root_validator  # type: ignore[assignment]
 
 try:
-    from pydantic.v1 import BaseSettings as BaseSettingsV1
+    from pydantic_settings import BaseSettings
 except ImportError:
-    from pydantic import BaseSettings as BaseSettingsV1  # type: ignore[assignment]
-
-try:
-    from pydantic_settings import BaseSettings as BaseSettingsV2, SettingsConfigDict
-except ImportError:
-    SettingsConfigDict = None  # type: ignore[assignment,misc]
-    BaseSettingsV2 = BaseSettingsV1  # fallback
+    try:
+        from pydantic.v1 import BaseSettings
+    except ImportError:
+        from pydantic import BaseSettings  # type: ignore[assignment]
 
 try:
     from dotenv import dotenv_values, find_dotenv, load_dotenv
@@ -36,24 +33,6 @@ _ENV_BOOTSTRAP_STATE = {
     "dotenv_key_forensics": {},
 }
 _TELEGRAM_KEYS = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
-
-
-def sanitize_csv_env(value: str, *, uppercase: bool = True) -> List[str]:
-    """
-    Parse comma-separated env safely:
-    - strips inline comments (# ...)
-    - trims whitespace
-    - drops empty tokens
-    - optional uppercase normalization
-    """
-    txt = str(value or "")
-    # Strip inline comments (everything after first #).
-    if "#" in txt:
-        txt = txt.split("#", 1)[0]
-    items = [p.strip() for p in txt.split(",") if p.strip()]
-    if uppercase:
-        return [p.upper() for p in items]
-    return items
 
 
 def _resolve_env_path() -> str | None:
@@ -173,50 +152,22 @@ def debug_env(logger=None):
     return debug_data
 
 
-def _bybit_settings_base() -> type:
-    """Build BybitSettings with pydantic v2 style when pydantic_settings available."""
-    from pydantic import Field
-    from pydantic import model_validator
+class BybitSettings(BaseSettings):
+    base_url: str = Field("https://api.bybit.com", env="BYBIT_BASE_URL")
+    request_sleep_ms: int = Field(250, env="REQUEST_SLEEP_MS")
+    execution_mode: str = Field("disabled", env="EXECUTION_MODE")
+    explicit_confirm_execution: bool = Field(False, env="EXPLICIT_CONFIRM_EXECUTION")
 
-    class BybitSettings(BaseSettingsV2):
-        model_config = SettingsConfigDict(env_prefix="", extra="ignore")
-
-        base_url: str = Field(default="https://api.bybit.com", validation_alias="BYBIT_BASE_URL")
-        request_sleep_ms: int = Field(default=250, validation_alias="REQUEST_SLEEP_MS")
-        execution_mode: str = Field(default="disabled", validation_alias="EXECUTION_MODE")
-        explicit_confirm_execution: bool = Field(default=False, validation_alias="EXPLICIT_CONFIRM_EXECUTION")
-
-        @model_validator(mode="after")
-        def _normalize(self):
-            self.base_url = str(self.base_url or "https://api.bybit.com").rstrip("/")
-            self.request_sleep_ms = max(0, int(self.request_sleep_ms or 250))
-            mode = str(self.execution_mode or "disabled").lower()
-            self.execution_mode = mode if mode in ("disabled", "testnet", "live") else "disabled"
-            return self
-
-    return BybitSettings
+    @root_validator(pre=False)
+    def _normalize(cls, values):
+        values["base_url"] = str(values.get("base_url") or "https://api.bybit.com").rstrip("/")
+        values["request_sleep_ms"] = max(0, int(values.get("request_sleep_ms", 250)))
+        mode = str(values.get("execution_mode") or "disabled").lower()
+        values["execution_mode"] = mode if mode in ("disabled", "testnet", "live") else "disabled"
+        return values
 
 
-if SettingsConfigDict is not None:
-    BybitSettings = _bybit_settings_base()
-else:
-    # Fallback: pydantic v1 style when pydantic_settings not available
-    class BybitSettings(BaseSettingsV1):  # type: ignore[no-redef]
-        base_url: str = Field("https://api.bybit.com", env="BYBIT_BASE_URL")
-        request_sleep_ms: int = Field(250, env="REQUEST_SLEEP_MS")
-        execution_mode: str = Field("disabled", env="EXECUTION_MODE")
-        explicit_confirm_execution: bool = Field(False, env="EXPLICIT_CONFIRM_EXECUTION")
-
-        @root_validator(pre=False)
-        def _normalize(cls, values):
-            values["base_url"] = str(values.get("base_url") or "https://api.bybit.com").rstrip("/")
-            values["request_sleep_ms"] = max(0, int(values.get("request_sleep_ms", 250)))
-            mode = str(values.get("execution_mode") or "disabled").lower()
-            values["execution_mode"] = mode if mode in ("disabled", "testnet", "live") else "disabled"
-            return values
-
-
-class TelegramSettings(BaseSettingsV1):
+class TelegramSettings(BaseSettings):
     bot_token: str = Field("", env="TELEGRAM_BOT_TOKEN")
     chat_id: str = Field("", env="TELEGRAM_CHAT_ID")
     format: str = Field("compact", env="TELEGRAM_FORMAT")
@@ -247,18 +198,17 @@ class TelegramSettings(BaseSettingsV1):
         return values
 
 
-class RiskSettings(BaseSettingsV1):
+class RiskSettings(BaseSettings):
     interval: str = Field("15", env="INTERVAL")
     lookback: int = Field(300, env="LOOKBACK")
     scan_seconds: int = Field(60, env="SCAN_SECONDS")
     scan_cycle_timeout_seconds: int = Field(0, env="SCAN_CYCLE_TIMEOUT_SECONDS")
-    stall_threshold_seconds: int = Field(0, env="STALL_THRESHOLD_SECONDS")
     watchlist_raw: str = Field("", env="WATCHLIST")
     watchlist_mode: str = Field("static", env="WATCHLIST_MODE")
     watchlist_top_n: int = Field(10, env="WATCHLIST_TOP_N")
     watchlist_refresh_minutes: int = Field(60, env="WATCHLIST_REFRESH_MINUTES")
     watchlist_min_price: float = Field(0.01, env="WATCHLIST_MIN_PRICE")
-    watchlist_min_turnover_24h: float = Field(20000000.0, env="WATCHLIST_MIN_TURNOVER_24H")
+    watchlist_min_turnover_24h: float = Field(100000000.0, env="WATCHLIST_MIN_TURNOVER_24H")
     watchlist_exclude_prefixes_raw: str = Field("1000,10000", env="WATCHLIST_EXCLUDE_PREFIXES")
     watchlist_exclude_symbols_raw: str = Field("", env="WATCHLIST_EXCLUDE_SYMBOLS")
     watchlist_exclude_regex: str = Field("", env="WATCHLIST_EXCLUDE_REGEX")
@@ -266,28 +216,9 @@ class RiskSettings(BaseSettingsV1):
     min_turnover_usdt: float = Field(100000000.0, env="MIN_TURNOVER_USDT")
     min_vol_pct: float = Field(0.8, env="MIN_VOL_PCT")
     max_vol_pct: float = Field(8.0, env="MAX_VOL_PCT")
-    debug_relax_filters: bool = Field(False, env="DEBUG_RELAX_FILTERS")
     watchlist_pool_n: int = Field(30, env="WATCHLIST_POOL_N")
     watchlist_rank: str = Field("turnover", env="WATCHLIST_RANK")
-    watchlist_universe_n: int = Field(200, env="WATCHLIST_UNIVERSE_N")
-    watchlist_batch_n: int = Field(25, env="WATCHLIST_BATCH_N")
-    watchlist_refresh_seconds: int = Field(600, env="WATCHLIST_REFRESH_SECONDS")
-    watchlist_rotate_mode: str = Field("roundrobin", env="WATCHLIST_ROTATE_MODE")
-    watchlist_rotate_seed: int = Field(0, env="WATCHLIST_ROTATE_SEED")
     position_mode: str = Field("global", env="POSITION_MODE")
-    universe_mode: str = Field("static", env="UNIVERSE_MODE")
-    universe_top_n: int = Field(25, env="UNIVERSE_TOP_N")
-    universe_size: int = Field(200, env="UNIVERSE_SIZE")
-    batch_size: int = Field(20, env="BATCH_SIZE")
-    universe_refresh_hours: int = Field(6, env="UNIVERSE_REFRESH_HOURS")
-    min_turnover: float = Field(50000000.0, env="MIN_TURNOVER")
-    min_24h_turnover: float = Field(20000000.0, env="MIN_24H_TURNOVER")
-    min_atr_pct_universe: float = Field(0.003, env="MIN_ATR_PCT")
-    rotation_state_file: str = Field("state.json", env="ROTATION_STATE_FILE")
-    universe_mode: str = Field("static", env="UNIVERSE_MODE")
-    universe_top_n: int = Field(25, env="UNIVERSE_TOP_N")
-    universe_refresh_hours: int = Field(6, env="UNIVERSE_REFRESH_HOURS")
-    min_turnover: float = Field(50000000.0, env="MIN_TURNOVER")
     max_concurrent_positions: int = Field(1, env="MAX_CONCURRENT_POSITIONS")
     max_open_positions: int = Field(1, env="MAX_OPEN_POSITIONS")
     risk_notify_blocked_telegram: bool = Field(False, env="RISK_NOTIFY_BLOCKED_TELEGRAM")
@@ -295,10 +226,8 @@ class RiskSettings(BaseSettingsV1):
     kill_switch: bool = Field(False, env="KILL_SWITCH")
     risk_max_trades_per_day: int = Field(10, env="RISK_MAX_TRADES_PER_DAY")
     risk_max_daily_loss_sim: float = Field(100.0, env="RISK_MAX_DAILY_LOSS_SIM")
-    risk_max_consecutive_losses: int = Field(2, env="RISK_MAX_CONSECUTIVE_LOSSES")
-    risk_cooldown_minutes: int = Field(10, env="RISK_COOLDOWN_MINUTES")
-    global_cooldown_minutes: int = Field(10, env="GLOBAL_COOLDOWN_MINUTES")
-    telegram_daily_budget: int = Field(30, env="TELEGRAM_DAILY_BUDGET")
+    risk_max_consecutive_losses: int = Field(3, env="RISK_MAX_CONSECUTIVE_LOSSES")
+    risk_cooldown_minutes: int = Field(30, env="RISK_COOLDOWN_MINUTES")
     risk_one_position_per_symbol: bool = Field(True, env="RISK_ONE_POSITION_PER_SYMBOL")
     signal_debug: bool = Field(False, env="SIGNAL_DEBUG")
     kpi_debug: bool = Field(False, env="KPI_DEBUG")
@@ -326,15 +255,13 @@ class RiskSettings(BaseSettingsV1):
     paper_fees_bps: float = Field(6.0, env="PAPER_FEES_BPS")
     paper_equity_usdt: float = Field(200.0, env="PAPER_EQUITY_USDT")
     paper_timeout_bars: int = Field(12, env="PAPER_TIMEOUT_BARS")
-    paper_sl_atr: float = Field(1.3, env="PAPER_SL_ATR")
-    paper_tp_atr: float = Field(2.0, env="PAPER_TP_ATR")
+    paper_sl_atr: float = Field(1.0, env="PAPER_SL_ATR")
+    paper_tp_atr: float = Field(1.5, env="PAPER_TP_ATR")
     paper_start_equity_usdt: float = Field(1000.0, env="PAPER_START_EQUITY_USDT")
     paper_slippage_pct: float = Field(0.01, env="PAPER_SLIPPAGE_PCT")
     paper_fee_pct: float = Field(0.055, env="PAPER_FEE_PCT")
     spread_bps: float = Field(2.0, env="SPREAD_BPS")
     slippage_bps: float = Field(3.0, env="SLIPPAGE_BPS")
-    atr_mult: float = Field(1.7, env="ATR_MULT")
-    sl_buffer_pct: float = Field(0.0005, env="SL_BUFFER_PCT")
     risk_per_trade_pct: float = Field(0.15, env="RISK_PER_TRADE_PCT")
     daily_loss_limit_pct: float = Field(1.0, env="DAILY_LOSS_LIMIT_PCT")
     max_dd_pct: float = Field(12.0, env="MAX_DD_PCT")
@@ -360,7 +287,7 @@ class RiskSettings(BaseSettingsV1):
     @root_validator(pre=False)
     def _normalize(cls, values):
         mode = str(values.get("watchlist_mode") or "static").lower()
-        values["watchlist_mode"] = mode if mode in {"static", "topn", "dynamic", "market"} else "static"
+        values["watchlist_mode"] = mode if mode in {"static", "topn", "dynamic"} else "static"
         values["watchlist_top_n"] = max(1, int(values.get("watchlist_top_n", 10)))
         values["watchlist_refresh_minutes"] = max(1, int(values.get("watchlist_refresh_minutes", 60)))
         values["watchlist_min_price"] = max(0.0, float(values.get("watchlist_min_price", 0.01)))
@@ -369,61 +296,12 @@ class RiskSettings(BaseSettingsV1):
         values["min_vol_pct"] = max(0.0, float(values.get("min_vol_pct", 0.8)))
         values["max_vol_pct"] = 8.0 if float(values.get("max_vol_pct", 8.0)) <= 0 else float(values.get("max_vol_pct", 8.0))
         values["watchlist_pool_n"] = max(1, int(values.get("watchlist_pool_n", 30)))
-        # Unify watchlist_universe_n/batch_n with UNIVERSE_SIZE/BATCH_SIZE.
-        # Primary source of truth is WATCHLIST_UNIVERSE_N / WATCHLIST_BATCH_N;
-        # UNIVERSE_SIZE / BATCH_SIZE are treated as deprecated aliases and only
-        # used as fallback when WATCHLIST_* are not explicitly set.
-        wl_uni_raw = int(values.get("watchlist_universe_n", 0) or 0)
-        wl_batch_raw = int(values.get("watchlist_batch_n", 0) or 0)
-        uni_raw = int(values.get("universe_size", 0) or 0)
-        batch_raw = int(values.get("batch_size", 0) or 0)
-        env_has_wl_uni = "WATCHLIST_UNIVERSE_N" in os.environ
-        env_has_wl_batch = "WATCHLIST_BATCH_N" in os.environ
-        env_has_uni_size = "UNIVERSE_SIZE" in os.environ
-        env_has_batch_size = "BATCH_SIZE" in os.environ
-        if env_has_wl_uni:
-            uni_eff = wl_uni_raw or 200
-        elif env_has_uni_size and uni_raw > 0:
-            uni_eff = uni_raw
-        else:
-            uni_eff = wl_uni_raw or uni_raw or 200
-        if env_has_wl_batch:
-            batch_eff = wl_batch_raw or 25
-        elif env_has_batch_size and batch_raw > 0:
-            batch_eff = batch_raw
-        else:
-            batch_eff = wl_batch_raw or batch_raw or 25
-        values["watchlist_universe_n"] = max(1, int(uni_eff))
-        values["watchlist_batch_n"] = max(1, int(batch_eff))
-        values["watchlist_refresh_seconds"] = max(60, int(values.get("watchlist_refresh_seconds", 600)))
-        uni_mode = str(values.get("universe_mode", "static") or "static").strip().lower()
-        values["universe_mode"] = uni_mode if uni_mode in {"static", "dynamic"} else "static"
-        # universe_size and universe_top_n follow the unified universe_n
-        values["universe_size"] = values["watchlist_universe_n"]
-        values["universe_top_n"] = max(1, int(values.get("universe_top_n", values["universe_size"])))
-        values["batch_size"] = values["watchlist_batch_n"]
-        values["universe_refresh_hours"] = max(1, int(values.get("universe_refresh_hours", 6)))
-        values["min_turnover"] = max(0.0, float(values.get("min_turnover", 50000000.0)))
-        values["min_24h_turnover"] = max(0.0, float(values.get("min_24h_turnover", 20000000.0)))
-        values["min_atr_pct_universe"] = max(0.0, float(values.get("min_atr_pct_universe", 0.003)))
-        rot = str(values.get("watchlist_rotate_mode", "roundrobin")).strip().lower()
-        values["watchlist_rotate_mode"] = rot if rot in {"roundrobin", "random"} else "roundrobin"
-        values["watchlist_rotate_seed"] = int(values.get("watchlist_rotate_seed", 0) or 0)
         rank = str(values.get("watchlist_rank") or "turnover").lower()
         values["watchlist_rank"] = rank if rank in {"turnover", "turnover_vol", "momentum_1h"} else "turnover"
         values["max_concurrent_positions"] = max(0, int(values.get("max_concurrent_positions", 1)))
         values["max_open_positions"] = max(0, int(values.get("max_open_positions", 1)))
         values["kill_switch"] = bool(values.get("kill_switch", values.get("risk_kill_switch", False)))
         values["heartbeat_minutes"] = max(1, int(values.get("heartbeat_minutes", 15)))
-        # Cooldowns
-        values["risk_cooldown_minutes"] = max(0, int(values.get("risk_cooldown_minutes", 30)))
-        # GLOBAL_COOLDOWN_MINUTES is primary; fall back to risk_cooldown_minutes for compatibility
-        gc_min = int(values.get("global_cooldown_minutes", 0) or 0)
-        if gc_min <= 0:
-            gc_min = int(values.get("risk_cooldown_minutes", 0) or 0)
-        values["global_cooldown_minutes"] = max(0, gc_min)
-        # Telegram daily budget (0 disables budget)
-        values["telegram_daily_budget"] = max(0, int(values.get("telegram_daily_budget", 30)))
         values["threshold_profile"] = str(values.get("threshold_profile") or "A").upper()
         if values["threshold_profile"] not in {"A", "B", "C"}:
             values["threshold_profile"] = "A"
@@ -433,15 +311,13 @@ class RiskSettings(BaseSettingsV1):
         values["paper_fees_bps"] = max(0.0, float(values.get("paper_fees_bps", 6.0)))
         values["paper_equity_usdt"] = max(0.0, float(values.get("paper_equity_usdt", 200.0)))
         values["paper_timeout_bars"] = max(1, int(values.get("paper_timeout_bars", 12)))
-        values["paper_sl_atr"] = 1.3 if float(values.get("paper_sl_atr", 1.3)) <= 0 else float(values["paper_sl_atr"])
-        values["paper_tp_atr"] = 2.0 if float(values.get("paper_tp_atr", 2.0)) <= 0 else float(values["paper_tp_atr"])
+        values["paper_sl_atr"] = 1.0 if float(values.get("paper_sl_atr", 1.0)) <= 0 else float(values["paper_sl_atr"])
+        values["paper_tp_atr"] = 1.5 if float(values.get("paper_tp_atr", 1.5)) <= 0 else float(values["paper_tp_atr"])
         values["paper_start_equity_usdt"] = max(0.0, float(values.get("paper_start_equity_usdt", 1000.0)))
         values["paper_slippage_pct"] = max(0.0, float(values.get("paper_slippage_pct", 0.01)))
         values["paper_fee_pct"] = max(0.0, float(values.get("paper_fee_pct", 0.055)))
         values["spread_bps"] = max(0.0, float(values.get("spread_bps", 2.0)))
         values["slippage_bps"] = max(0.0, float(values.get("slippage_bps", 3.0)))
-        values["atr_mult"] = max(0.0, float(values.get("atr_mult", 1.5)))
-        values["sl_buffer_pct"] = max(0.0, float(values.get("sl_buffer_pct", 0.0005)))
         values["risk_per_trade_pct"] = max(0.0, float(values.get("risk_per_trade_pct", 0.15)))
         values["daily_loss_limit_pct"] = max(0.0, float(values.get("daily_loss_limit_pct", 1.0)))
         values["max_dd_pct"] = max(0.0, float(values.get("max_dd_pct", 12.0)))
@@ -456,7 +332,7 @@ class RiskSettings(BaseSettingsV1):
 
     @property
     def watchlist(self) -> List[str]:
-        return sanitize_csv_env(str(self.watchlist_raw or ""), uppercase=True)
+        return [s.strip().upper() for s in str(self.watchlist_raw or "").split(",") if s.strip()]
 
     @property
     def watchlist_refresh_min(self) -> int:
@@ -464,14 +340,14 @@ class RiskSettings(BaseSettingsV1):
 
     @property
     def watchlist_exclude_prefixes(self) -> List[str]:
-        return sanitize_csv_env(str(self.watchlist_exclude_prefixes_raw or ""), uppercase=False)
+        return [item.strip() for item in str(self.watchlist_exclude_prefixes_raw or "").split(",") if item.strip()]
 
     @property
     def watchlist_exclude_symbols(self) -> List[str]:
-        return sanitize_csv_env(str(self.watchlist_exclude_symbols_raw or ""), uppercase=True)
+        return [item.strip().upper() for item in str(self.watchlist_exclude_symbols_raw or "").split(",") if item.strip()]
 
 
-class StrategyV3Settings(BaseSettingsV1):
+class StrategyV3Settings(BaseSettings):
     strategy_v1: bool = Field(False, env="STRATEGY_V1")
     v1_setup_breakout: bool = Field(False, env="V1_SETUP_BREAKOUT")
     v1_setup_trap: bool = Field(False, env="V1_SETUP_TRAP")
@@ -495,31 +371,6 @@ class StrategyV3Settings(BaseSettingsV1):
     min_atr_pct_15m: float = Field(0.2, env="MIN_ATR_PCT_15M")
     max_atr_pct_15m: float = Field(3.0, env="MAX_ATR_PCT_15M")
     log_v3_triggers: bool = Field(False, env="LOG_V3_TRIGGERS")
-    v3_conservative_params: str = Field("", env="V3_CONSERVATIVE_PARAMS")
-    # Hybrid strategy engine toggles.
-    strategies_enabled: str = Field("", env="STRATEGIES_ENABLED")
-    top_intents_per_scan: int = Field(3, env="TOP_INTENTS_PER_SCAN")
-    # LSR (Liquidity Sweep Reversal) parameters.
-    lsr_lookback_bars: int = Field(20, env="LSR_LOOKBACK_BARS")
-    lsr_min_wick_ratio: float = Field(0.5, env="LSR_MIN_WICK_RATIO")
-    lsr_ema_tol_pct: float = Field(0.003, env="LSR_EMA_TOL_PCT")
-    lsr_sl_atr_mult: float = Field(0.3, env="LSR_SL_ATR_MULT")
-    lsr_max_tp_atr_mult: float = Field(6.0, env="LSR_MAX_TP_ATR_MULT")
-    lsr_entry_mode: str = Field("close", env="LSR_ENTRY_MODE")
-    # REV_SWEPT_RSI parameters.
-    rev_enabled: bool = Field(True, env="REV_ENABLED")
-    rev_sweep_lookback_bars: int = Field(30, env="REV_SWEEP_LOOKBACK_BARS")
-    rev_sweep_tol_atr: float = Field(0.25, env="REV_SWEEP_TOL_ATR")
-    rev_rsi_period: int = Field(14, env="REV_RSI_PERIOD")
-    rev_pivot_left: int = Field(3, env="REV_PIVOT_LEFT")
-    rev_pivot_right: int = Field(3, env="REV_PIVOT_RIGHT")
-    rev_min_rsi_delta: float = Field(3.0, env="REV_MIN_RSI_DELTA")
-    rev_ema200_dist_pct: float = Field(0.01, env="REV_EMA200_DIST_PCT")
-    rev_sl_atr_mult: float = Field(0.35, env="REV_SL_ATR_MULT")
-    rev_sl_buffer_atr: float = Field(0.10, env="REV_SL_BUFFER_ATR")
-    rev_entry_mode: str = Field("bos", env="REV_ENTRY_MODE")
-    rev_max_trend_sep_atr_1h: float = Field(1.0, env="REV_MAX_TREND_SEP_ATR_1H")
-    rev_require_1h_align: bool = Field(False, env="REV_REQUIRE_1H_ALIGN")
 
     @root_validator(pre=False)
     def _normalize(cls, values):
@@ -534,49 +385,20 @@ class StrategyV3Settings(BaseSettingsV1):
         mode = str(values.get("retest_confirm_mode") or "bos").lower()
         values["retest_confirm_mode"] = mode if mode in {"none", "ema20", "bos"} else "bos"
         values["bos_lookback_5m"] = max(1, int(values.get("bos_lookback_5m", 20)))
-        values["top_intents_per_scan"] = max(1, int(values.get("top_intents_per_scan", 3)))
-        values["strategies_enabled"] = ",".join(
-            sanitize_csv_env(str(values.get("strategies_enabled", "") or ""), uppercase=False)
-        )
-        values["lsr_lookback_bars"] = max(5, int(values.get("lsr_lookback_bars", 20)))
-        values["lsr_min_wick_ratio"] = max(0.0, min(1.0, float(values.get("lsr_min_wick_ratio", 0.5))))
-        values["lsr_ema_tol_pct"] = max(0.0, float(values.get("lsr_ema_tol_pct", 0.003)))
-        values["lsr_sl_atr_mult"] = max(0.0, float(values.get("lsr_sl_atr_mult", 0.3)))
-        values["lsr_max_tp_atr_mult"] = max(0.1, float(values.get("lsr_max_tp_atr_mult", 6.0)))
-        emode = str(values.get("lsr_entry_mode") or "close").lower()
-        values["lsr_entry_mode"] = emode if emode in {"close", "break"} else "close"
-        values["rev_sweep_lookback_bars"] = max(10, int(values.get("rev_sweep_lookback_bars", 30)))
-        values["rev_sweep_tol_atr"] = max(0.0, float(values.get("rev_sweep_tol_atr", 0.25)))
-        values["rev_rsi_period"] = max(5, int(values.get("rev_rsi_period", 14)))
-        values["rev_pivot_left"] = max(1, int(values.get("rev_pivot_left", 3)))
-        values["rev_pivot_right"] = max(1, int(values.get("rev_pivot_right", 3)))
-        values["rev_min_rsi_delta"] = max(0.0, float(values.get("rev_min_rsi_delta", 3.0)))
-        values["rev_ema200_dist_pct"] = max(0.0, float(values.get("rev_ema200_dist_pct", 0.01)))
-        values["rev_sl_atr_mult"] = max(0.0, float(values.get("rev_sl_atr_mult", 0.35)))
-        values["rev_sl_buffer_atr"] = max(0.0, float(values.get("rev_sl_buffer_atr", 0.10)))
-        rev_mode = str(values.get("rev_entry_mode") or "bos").lower()
-        values["rev_entry_mode"] = rev_mode if rev_mode in {"reenter", "bos", "close"} else "bos"
-        values["rev_max_trend_sep_atr_1h"] = max(0.1, float(values.get("rev_max_trend_sep_atr_1h", 1.0)))
         return values
 
 
-class ReplaySettings(BaseSettingsV1):
-    time_stop_bars: int = Field(0, env="TIME_STOP_BARS")
-    time_stop_min_r: float = Field(0.0, env="TIME_STOP_MIN_R")
-    be_at_r: float = Field(0.0, env="BE_AT_R")
-    partial_tp_at_r: float = Field(1.0, env="PARTIAL_TP_AT_R")
-    partial_tp_pct: float = Field(0.4, env="PARTIAL_TP_PCT")
+class ReplaySettings(BaseSettings):
+    be_at_r: float = Field(1.0, env="BE_AT_R")
+    partial_tp_at_r: float = Field(0.0, env="PARTIAL_TP_AT_R")
     trail_after_r: float = Field(0.0, env="TRAIL_AFTER_R")
     replay_exit_mode: str = Field("hard", env="REPLAY_EXIT_MODE")
     replay_progress_every: int = Field(0, env="REPLAY_PROGRESS_EVERY")
 
     @root_validator(pre=False)
     def _normalize(cls, values):
-        values["time_stop_bars"] = max(0, int(values.get("time_stop_bars", 0)))
-        values["time_stop_min_r"] = max(0.0, float(values.get("time_stop_min_r", 0.0)))
-        values["be_at_r"] = max(0.0, float(values.get("be_at_r", 0.0)))
+        values["be_at_r"] = max(0.0, float(values.get("be_at_r", 1.0)))
         values["partial_tp_at_r"] = max(0.0, float(values.get("partial_tp_at_r", 0.0)))
-        values["partial_tp_pct"] = max(0.0, min(1.0, float(values.get("partial_tp_pct", 0.0))))
         values["trail_after_r"] = max(0.0, float(values.get("trail_after_r", 0.0)))
         mode = str(values.get("replay_exit_mode") or "hard").lower()
         values["replay_exit_mode"] = "hard" if mode == "hard" else "legacy"
@@ -584,7 +406,7 @@ class ReplaySettings(BaseSettingsV1):
         return values
 
 
-class CacheSettings(BaseSettingsV1):
+class CacheSettings(BaseSettings):
     candles_cache_ttl_seconds: int = Field(120, env="CANDLES_CACHE_TTL_SECONDS")
     cache_only_gap_bars_max: int = Field(12, env="CACHE_ONLY_GAP_BARS_MAX")
 
@@ -595,7 +417,7 @@ class CacheSettings(BaseSettingsV1):
         return values
 
 
-class DashboardSettings(BaseSettingsV1):
+class DashboardSettings(BaseSettings):
     host: str = Field("127.0.0.1", env="DASHBOARD_HOST")
     port: int = Field(8000, env="DASHBOARD_PORT")
     telegram: bool = Field(False, env="DASHBOARD_TELEGRAM")
@@ -621,9 +443,6 @@ class Settings(BaseModel):
     replay: ReplaySettings
     cache: CacheSettings
     dashboard: DashboardSettings
-
-    class Config:
-        arbitrary_types_allowed = True  # allow v2 BybitSettings in v1 Settings
 
 
 @lru_cache(maxsize=1)

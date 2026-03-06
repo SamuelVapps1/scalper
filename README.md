@@ -68,29 +68,6 @@ Then open `.env` and set values, especially:
 - `SCAN_SECONDS` (example: `60`)
 - `TELEGRAM_BOT_TOKEN` (optional but needed for Telegram alerts)
 - `TELEGRAM_CHAT_ID` (optional but needed for Telegram alerts)
-<<<<<<< HEAD
-=======
-- `TELEGRAM_FORMAT=compact` (`compact|verbose`, message verbosity for Telegram alerts)
-- `TELEGRAM_MAX_CHARS_COMPACT=900` (max chars for compact messages; longer text is truncated)
-- `TELEGRAM_MAX_CHARS_VERBOSE=2500` (max chars for verbose messages; longer text is truncated)
-- `TELEGRAM_SEND_BLOCKED=0` (send blocked intent telegrams; default off to reduce spam)
-- `TELEGRAM_SEND_DASHBOARD=0` (recommended default; keeps Telegram concise and avoids dashboard spam)
-- `EARLY_ENABLED=1` (enable 5m EARLY pre-alert bridge)
-- `EARLY_TF=5` (timeframe used for EARLY alerts)
-- `EARLY_LOOKBACK_5M=180` (lookback candles for 5m EARLY evaluation)
-- `EARLY_MIN_CONF=0.35` (minimum confidence for EARLY alert)
-- `EARLY_REQUIRE_15M_CONTEXT=1` (fetch/use 5m only if 15m produced RB/FB candidates)
-- `EARLY_MAX_ALERTS_PER_SYMBOL_PER_15M=1` (dedupe cap per symbol per active 15m candle)
-- `THRESHOLD_PROFILE=A` (strategy threshold preset: `A|B|C`; active profile drives live DRY RUN signals)
-- `DB_PATH=./data/scalper.db` (SQLite path; default uses WAL mode in ./data)
-
-For dynamic Top-N watchlist mode (`WATCHLIST_MODE=topn`), quality filters are available:
-
-- `WATCHLIST_MIN_TURNOVER_24H=100000000` (default 100M)
-- `WATCHLIST_EXCLUDE_SYMBOLS=PEPEUSDT,FLOKIUSDT,BONKUSDT` (exact symbol excludes)
-- `WATCHLIST_EXCLUDE_REGEX=` (optional Python regex, example: `^(1000|10000)|.*(PEPE|FLOKI|BONK).*`)
-- `WATCHLIST_MAX_SPREAD_BPS=` (optional max spread in bps; empty/0 disables)
->>>>>>> 4cfdd8fe6584fa7b2772b45743f088df40182329
 
 ---
 
@@ -118,10 +95,6 @@ Run these from PowerShell in the project root:
 ```powershell
 python bot.py --help
 python bot.py --test-telegram
-<<<<<<< HEAD
-=======
-python bot.py --test-telegram-formats
->>>>>>> 4cfdd8fe6584fa7b2772b45743f088df40182329
 python bot.py --once
 ```
 
@@ -129,31 +102,8 @@ Expected behavior:
 
 - `--help`: prints usage and exits (does not start scanning)
 - `--test-telegram`: sends `✅ Telegram OK (test)` and exits
-<<<<<<< HEAD
 - `--once`: runs exactly one scan pass and exits
 
-=======
-- `--test-telegram-formats`: prints sample ALLOW/BLOCK/CLOSE/EARLY in both compact and verbose modes (no send)
-- `--once`: runs exactly one scan pass and exits
-
-Telegram compact examples:
-
-- compact allow:
-  `ALLOW[15m] BTCUSDT LONG conf=0.74`
-  `entry=65780.0000 sl=65466.3300 tp=66250.4900`
-  `sl%=0.48 tp%=0.72`
-  `setup=Range breakout -> retest -> go`
-  `risk open=1/3 trades=4 cooldown=OFF`
-- compact blocked:
-  `BLOCK[15m] ETHUSDT SHORT conf=0.62`
-  `setup=EMA200 fade after sweep (trap)`
-  `risk_reason=MAX_OPEN_POSITIONS_REACHED (3)`
-- compact close:
-  `CLOSE[15m] XRPUSDT SHORT`
-  `pnl=0.4503 reason=TP bars=3`
-  `after daily_pnl=1.3432 consec_losses=0 cooldown=OFF`
-
->>>>>>> 4cfdd8fe6584fa7b2772b45743f088df40182329
 Code note:
 
 - Telegram integration uses `send_telegram(token, chat_id, text)` in `telegram_notify.py`
@@ -206,11 +156,6 @@ Fix:
 - `bybit.py` - public Bybit kline fetch
 - `signals.py` - indicators + setup rules
 - `telegram_notify.py` - Telegram `sendMessage`
-<<<<<<< HEAD
 - `storage.py` - CSV signal logging
-=======
-- `storage.py` - storage facade over SQLite (WAL)
-- `sqlite_store.py` - sqlite3 backend (signals/intents/risk/positions/fills/kv)
->>>>>>> 4cfdd8fe6584fa7b2772b45743f088df40182329
 - `config.py` - loads `.env`
 - `requirements.txt` - Python dependencies
