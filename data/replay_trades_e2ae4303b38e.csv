@@ -1,0 +1,2 @@
+ts_entry,ts_exit,symbol,setup,side,entry,sl,tp,exit_price,qty,pnl_usdt,risk_usdt,r_multiple,risk_status,exit_reason,partial
+2026-02-28T06:15:00+00:00,2026-02-28T06:35:00+00:00,BTCUSDT,V3_TREND_BREAKOUT,SHORT,64844.1617,64844.1617,63608.32828027316,63608.32828027316,0.0030843177667296455,3.57170297318173,0.0,,ok,TP,0

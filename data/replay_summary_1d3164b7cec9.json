@@ -1,0 +1,71 @@
+{
+  "run_id": "1d3164b7cec9",
+  "overall": {
+    "expectancy_R": -0.8041,
+    "winrate": 0.48148148148148145,
+    "winrate_roundtrip": 0.48148148148148145,
+    "winrate_fill": 0.48148148148148145,
+    "profit_factor": 0.9465,
+    "max_dd_usdt": 22.41,
+    "trades_total": 54,
+    "entries_count": 54,
+    "closes_count": 54,
+    "partial_closes_count": 0,
+    "total_fills_count": 54,
+    "wins": 26,
+    "losses": 28,
+    "round_trip_wins": 26,
+    "round_trip_losses": 28,
+    "avg_win_R": 0.8836,
+    "avg_loss_R": -0.8978
+  },
+  "by_setup": {
+    "V3_TREND_BREAKOUT": {
+      "expectancy_R": -0.8041,
+      "winrate": 0.4815,
+      "profit_factor": 0.9465,
+      "trades_total": 54,
+      "wins": 26,
+      "losses": 28,
+      "avg_win_R": 0.8836,
+      "avg_loss_R": -0.8978,
+      "max_dd_usdt": 22.41
+    }
+  },
+  "exit_reason_counts": {
+    "TP": 10,
+    "SL": 22,
+    "END_OF_DATA": 1
+  },
+  "skip_reasons": {
+    "bias_none": 0,
+    "atr_filter_fail": 0,
+    "range_too_small": 0,
+    "breakout_not_triggered": 0,
+    "retest_not_filled": 0,
+    "bos_not_confirmed": 0,
+    "ema20_confirm_fail": 0,
+    "ema200_align_fail": 0,
+    "ema20_ema50_fail": 0,
+    "trend_weak": 0,
+    "momo_confirm_fail": 0,
+    "pullback_not_triggered": 0,
+    "no_active_setup": 0,
+    "score_below_min": 0,
+    "max_abs_dist_4h": 0,
+    "max_abs_dist_4h_hard": 0,
+    "rate_limited": 0,
+    "v3_bias_none": 0,
+    "v3_trend_align_fail": 1228,
+    "v3_sep_fail": 0,
+    "v3_donchian_not_broken": 1404,
+    "v3_body_too_small": 2,
+    "v3_missing_5m": 0,
+    "v3_5m_confirm_fail": 0,
+    "v3_not_enough_15m_bars": 0,
+    "v3_missing_4h_slope_inputs": 0,
+    "v3_slope_too_small": 0,
+    "v3_missing_1h_inputs": 0
+  },
+  "risk_invalid_count": 0
+}

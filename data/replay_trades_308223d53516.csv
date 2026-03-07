@@ -1,0 +1,2 @@
+ts_entry,ts_exit,symbol,setup,side,entry,sl,tp,exit_price,qty,pnl_usdt,risk_usdt,r_multiple,risk_status,exit_reason,partial
+2026-03-03T14:30:00+00:00,2026-03-03T15:00:00+00:00,BTCUSDT,TREND_PULLBACK_EMA20,SHORT,66806.08025,66806.08025,65713.83138642379,66608.9,0.0029937394807712883,0.3503062992533674,0.0,,ok,TIME_STOP,0
