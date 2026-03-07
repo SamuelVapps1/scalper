@@ -136,6 +136,32 @@ def _ensure_db() -> None:
                     fee_usdt REAL,
                     json TEXT
                 );
+                CREATE TABLE IF NOT EXISTS trade_records (
+                    intent_id TEXT PRIMARY KEY,
+                    ts_open INTEGER,
+                    symbol TEXT,
+                    strategy TEXT,
+                    side TEXT,
+                    tf TEXT,
+                    entry REAL,
+                    sl REAL,
+                    tp REAL,
+                    sl_pct REAL,
+                    tp_pct REAL,
+                    confidence REAL,
+                    atr_pct REAL,
+                    spread_bps REAL,
+                    bias_flags TEXT,
+                    ts_close INTEGER,
+                    close_price REAL,
+                    close_reason TEXT,
+                    pnl_usdt REAL,
+                    pnl_r REAL,
+                    bars_held INTEGER,
+                    mfe REAL,
+                    mae REAL,
+                    json TEXT
+                );
                 CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(ts DESC);
                 CREATE INDEX IF NOT EXISTS idx_signals_hash ON signals(hash);
                 CREATE INDEX IF NOT EXISTS idx_signals_symbol_ts ON signals(symbol, ts DESC);
@@ -155,6 +181,9 @@ def _ensure_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_paper_positions_symbol_status ON paper_positions(symbol, status);
                 CREATE INDEX IF NOT EXISTS idx_paper_positions_opened_ts ON paper_positions(opened_ts DESC);
                 CREATE INDEX IF NOT EXISTS idx_paper_trades_symbol_exit_ts ON paper_trades(symbol, exit_ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_trade_records_ts_close ON trade_records(ts_close DESC);
+                CREATE INDEX IF NOT EXISTS idx_trade_records_strategy ON trade_records(strategy);
+                CREATE INDEX IF NOT EXISTS idx_trade_records_symbol ON trade_records(symbol);
                 """
             )
             _migrate_schema(conn)
@@ -799,3 +828,157 @@ def insert_paper_trade(trade: Dict[str, Any]) -> None:
                     json.dumps(row, ensure_ascii=True),
                 ),
             )
+
+
+def insert_trade_record(record: Dict[str, Any]) -> None:
+    """Insert a strategy validation TradeRecord on paper ALLOW (open). intent_id is primary key."""
+    _ensure_db()
+    r = dict(record or {})
+    intent_id = str(r.get("intent_id", "") or "").strip()
+    if not intent_id:
+        return
+    ts_open = _to_epoch(r.get("ts_open") or r.get("entry_ts") or r.get("ts"))
+    symbol = str(r.get("symbol", "") or "").upper()
+    strategy = str(r.get("strategy", "") or r.get("setup", "") or "")
+    side = str(r.get("side", "") or r.get("direction", "") or "").upper()
+    tf = str(r.get("tf") or r.get("timeframe", "") or "")
+    entry = float(r.get("entry") or r.get("entry_price", 0.0) or 0.0)
+    sl = float(r.get("sl") or r.get("sl_price", 0.0) or 0.0)
+    tp = float(r.get("tp") or r.get("tp_price", 0.0) or 0.0)
+    sl_pct = _float_or_none(r.get("sl_pct"))
+    tp_pct = _float_or_none(r.get("tp_pct"))
+    confidence = _float_or_none(r.get("confidence") or r.get("score"))
+    atr_pct = _float_or_none(r.get("atr_pct"))
+    spread_bps = _float_or_none(r.get("spread_bps"))
+    bias_flags = str(r.get("bias_flags", "") or "")[:500]
+    with _WRITE_LOCK:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO trade_records (
+                    intent_id, ts_open, symbol, strategy, side, tf, entry, sl, tp,
+                    sl_pct, tp_pct, confidence, atr_pct, spread_bps, bias_flags, json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(intent_id) DO NOTHING
+                """,
+                (
+                    intent_id,
+                    ts_open,
+                    symbol,
+                    strategy,
+                    side,
+                    tf,
+                    entry,
+                    sl,
+                    tp,
+                    sl_pct,
+                    tp_pct,
+                    confidence,
+                    atr_pct,
+                    spread_bps,
+                    bias_flags,
+                    json.dumps(r, ensure_ascii=True),
+                ),
+            )
+
+
+def _float_or_none(val: Any) -> Optional[float]:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def update_trade_record_on_close(intent_id: str, close_data: Dict[str, Any]) -> None:
+    """Update trade_records row on paper close (TP/SL/timeout)."""
+    _ensure_db()
+    iid = str(intent_id or "").strip()
+    if not iid:
+        return
+    c = dict(close_data or {})
+    ts_close = _to_epoch(c.get("close_ts") or c.get("exit_ts") or c.get("ts"))
+    close_price = _float_or_none(c.get("close_price") or c.get("exit_price"))
+    close_reason = str(c.get("close_reason") or c.get("exit_reason", "") or "")
+    pnl_usdt = _float_or_none(c.get("pnl_usdt") or c.get("pnl"))
+    pnl_r = _float_or_none(c.get("pnl_r") or c.get("pnl_R") or c.get("r_multiple"))
+    bars_held = c.get("bars_held")
+    if bars_held is not None:
+        try:
+            bars_held = int(bars_held)
+        except (TypeError, ValueError):
+            bars_held = None
+    mfe = _float_or_none(c.get("mfe"))
+    mae = _float_or_none(c.get("mae"))
+    with _WRITE_LOCK:
+        with _connect() as conn:
+            conn.execute(
+                """
+                UPDATE trade_records SET
+                    ts_close = ?, close_price = ?, close_reason = ?,
+                    pnl_usdt = ?, pnl_r = ?, bars_held = ?, mfe = ?, mae = ?
+                WHERE intent_id = ?
+                """,
+                (ts_close, close_price, close_reason, pnl_usdt, pnl_r, bars_held, mfe, mae, iid),
+            )
+
+
+def get_trade_records_closed() -> List[Dict[str, Any]]:
+    """Return all trade_records that have been closed (ts_close not null) for reporting."""
+    _ensure_db()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT intent_id, ts_open, symbol, strategy, side, tf, entry, sl, tp,
+                   sl_pct, tp_pct, confidence, atr_pct, spread_bps, bias_flags,
+                   ts_close, close_price, close_reason, pnl_usdt, pnl_r, bars_held, mfe, mae
+            FROM trade_records WHERE ts_close IS NOT NULL ORDER BY ts_close DESC
+            """
+        ).fetchall()
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        out.append({
+            "intent_id": str(row["intent_id"] or ""),
+            "ts_open": int(row["ts_open"] or 0),
+            "symbol": str(row["symbol"] or ""),
+            "strategy": str(row["strategy"] or ""),
+            "side": str(row["side"] or ""),
+            "tf": str(row["tf"] or ""),
+            "entry": float(row["entry"] or 0),
+            "sl": float(row["sl"] or 0),
+            "tp": float(row["tp"] or 0),
+            "sl_pct": _float_or_none(row["sl_pct"]),
+            "tp_pct": _float_or_none(row["tp_pct"]),
+            "confidence": _float_or_none(row["confidence"]),
+            "atr_pct": _float_or_none(row["atr_pct"]),
+            "spread_bps": _float_or_none(row["spread_bps"]),
+            "bias_flags": str(row["bias_flags"] or ""),
+            "ts_close": int(row["ts_close"] or 0),
+            "close_price": _float_or_none(row["close_price"]),
+            "close_reason": str(row["close_reason"] or ""),
+            "pnl_usdt": _float_or_none(row["pnl_usdt"]),
+            "pnl_r": _float_or_none(row["pnl_r"]),
+            "bars_held": int(row["bars_held"]) if row["bars_held"] is not None else None,
+            "mfe": _float_or_none(row["mfe"]),
+            "mae": _float_or_none(row["mae"]),
+        })
+    return out
+
+
+def get_block_reasons_top_n(limit: int = 5) -> List[Dict[str, Any]]:
+    """Top N block reasons by count (from trade_intents)."""
+    _ensure_db()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT block_reason, COUNT(*) AS cnt FROM trade_intents
+            WHERE (risk_verdict = 'BLOCK' OR status = 'BLOCKED') AND ts >= ?
+            GROUP BY block_reason ORDER BY cnt DESC LIMIT ?
+            """,
+            (int(time.time()) - 7 * 24 * 60 * 60, max(1, int(limit))),
+        ).fetchall()
+    return [
+        {"block_reason": str(row["block_reason"] or "").strip() or "(empty)", "count": int(row["cnt"])}
+        for row in rows
+    ]

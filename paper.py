@@ -20,6 +20,7 @@ class PaperPosition:
     last_ts: str
     bars_held: int
     max_favorable_price: float = 0.0
+    min_adverse_price: float = 0.0
     be_moved: bool = False
     partial_taken: bool = False
 
@@ -43,6 +44,7 @@ class PaperPosition:
             last_ts=str(raw.get("last_ts", "")),
             bars_held=int(raw.get("bars_held", 0)),
             max_favorable_price=float(raw.get("max_favorable_price", 0.0) or 0.0),
+            min_adverse_price=float(raw.get("min_adverse_price", 0.0) or 0.0),
             be_moved=bool(raw.get("be_moved", False)),
             partial_taken=bool(raw.get("partial_taken", False)),
         )
@@ -228,6 +230,7 @@ def update_and_maybe_close(
             last_ts=ts,
             bars_held=position.bars_held + 1,
             max_favorable_price=mfp,
+            min_adverse_price=min_adv,
             be_moved=be_moved,
             partial_taken=partial_taken,
         )
@@ -261,6 +264,7 @@ def update_and_maybe_close(
         last_ts=ts,
         bars_held=position.bars_held + 1,
         max_favorable_price=mfp,
+        min_adverse_price=min_adv,
         be_moved=be_moved,
         partial_taken=partial_taken,
     )

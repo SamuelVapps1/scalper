@@ -55,6 +55,18 @@ class SQLiteStorageRepository:
     def insert_paper_trade(self, trade: Dict[str, Any]) -> None:
         sqlite_store.insert_paper_trade(trade)
 
+    def insert_trade_record(self, record: Dict[str, Any]) -> None:
+        sqlite_store.insert_trade_record(record)
+
+    def update_trade_record_on_close(self, intent_id: str, close_data: Dict[str, Any]) -> None:
+        sqlite_store.update_trade_record_on_close(intent_id, close_data)
+
+    def get_trade_records_closed(self) -> List[Dict[str, Any]]:
+        return sqlite_store.get_trade_records_closed()
+
+    def get_block_reasons_top_n(self, limit: int = 5) -> List[Dict[str, Any]]:
+        return sqlite_store.get_block_reasons_top_n(limit=limit)
+
 
 _REPO = SQLiteStorageRepository()
 

@@ -7,6 +7,23 @@ _TELEGRAM_CONFIG_WARNED: bool = False
 _LAST_TELEGRAM_SENT_AT: float = time.time()
 
 
+def _policy_allows_kind(policy: str, kind: str) -> bool:
+    p = str(policy or "events").strip().lower()
+    k = str(kind or "").strip().lower()
+    if p == "off":
+        return False
+    # Backward compatibility: keep legacy periodic behavior as "events-like".
+    if p == "periodic":
+        return k in {"intent", "scan_summary", "heartbeat", "stall", "test"}
+    if p == "events":
+        return k in {"intent", "scan_summary", "heartbeat", "stall", "test"}
+    if p == "signals":
+        return k in {"signal", "stall", "test"}
+    if p == "both":
+        return k in {"intent", "signal", "scan_summary", "heartbeat", "stall", "test"}
+    return k in {"intent", "scan_summary", "heartbeat", "stall", "test"}
+
+
 def warn_missing_telegram_once() -> None:
     global _TELEGRAM_CONFIG_WARNED
     if _TELEGRAM_CONFIG_WARNED:
@@ -34,6 +51,9 @@ def send_telegram_with_logging(
     import config as _cfg
 
     policy = str(getattr(_cfg, "TELEGRAM_POLICY", "events") or "events")
+    if not _policy_allows_kind(policy, kind):
+        logging.info("TELEGRAM_POLICY_SKIP policy=%s kind=%s", policy, str(kind))
+        return False
     token_set = bool(str(token or "").strip())
     chat_value = str(chat_id or "")
     chat_set = bool(chat_value.strip())

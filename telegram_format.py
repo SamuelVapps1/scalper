@@ -261,5 +261,37 @@ def format_early_alert(early: Dict[str, Any], market_ctx: Dict[str, Any]) -> str
     return _compact_or_verbose(compact, verbose, market_ctx)
 
 
+def format_signal_alert(signal: Dict[str, Any], market_ctx: Dict[str, Any]) -> str:
+    symbol = str(signal.get("symbol", "?"))
+    tf = str(market_ctx.get("tf", "n/a"))
+    side = str(signal.get("side", signal.get("direction", "?")))
+    strategy = _strategy_display(signal.get("strategy", signal.get("setup", "?")))
+    entry = _fmt_float(signal.get("entry", signal.get("close")))
+    sl = _fmt_float(signal.get("sl"))
+    tp = _fmt_float(signal.get("tp"))
+    sl_pct = _fmt_float(signal.get("sl_pct"), 2)
+    tp_pct = _fmt_float(signal.get("tp_pct"), 2)
+    conf = _fmt_float(signal.get("confidence"), 2)
+    conf_source = str(signal.get("confidence_source", "confidence") or "confidence")
+    note = str(signal.get("reason", signal.get("note", "")) or "")
+    bar_ts_used = str(signal.get("bar_ts_used", signal.get("ts", "")) or "")
+    compact = [
+        f"SIGNAL[{tf}m] {symbol} {side} conf={conf} ({conf_source})",
+        f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct}",
+        f"setup={note or strategy}",
+        "mode=DRY_RUN",
+    ]
+    verbose = [
+        f"📣 SIGNAL[{tf}m]",
+        f"{symbol} {side} {strategy}",
+        f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct}",
+        f"confidence={conf} source={conf_source}",
+        f"note={note or 'n/a'}",
+        f"bar_ts_used={bar_ts_used}",
+        "mode=DRY_RUN",
+    ]
+    return _compact_or_verbose(compact, verbose, market_ctx)
+
+
 def format_dashboard_compact(text: str, max_len: int = 1200) -> str:
     return _truncate_message(str(text or ""), max_len)
