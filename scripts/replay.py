@@ -36,7 +36,7 @@ from signals import (
     evaluate_symbol_intents_v2_trend_pullback,
 )
 from strategies.strategy_v3_tcb import _build_15m_to_5m_index, v3_tcb_evaluate
-from storage import compute_paper_kpis
+from scalper.storage import compute_paper_kpis
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 _log = logging.getLogger(__name__)

@@ -1,7 +1,10 @@
 requests
 python-dotenv
 pandas
+<<<<<<< HEAD
 fastapi
 uvicorn
 pydantic>=2,<3
 pydantic-settings>=2,<3
+=======
+>>>>>>> 687e22dccb4ca354fd3fb211e4c4c4cb9c7b2313

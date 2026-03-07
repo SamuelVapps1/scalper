@@ -15,7 +15,7 @@ _repo = Path(__file__).resolve().parents[1]
 if str(_repo) not in sys.path:
     sys.path.insert(0, str(_repo))
 
-from storage import save_paper_state
+from scalper.storage import save_paper_state
 import sqlite_store
 
 
@@ -33,7 +33,7 @@ def _load_json(path: Path) -> object:
 
 def _normalize_paper_state(raw: dict) -> dict:
     """Minimal normalization for paper state."""
-    from storage import _default_paper_state, _normalize_paper_state as _norm
+    from scalper.storage import _default_paper_state, _normalize_paper_state as _norm
     if not isinstance(raw, dict):
         return _default_paper_state()
     return _norm(raw)

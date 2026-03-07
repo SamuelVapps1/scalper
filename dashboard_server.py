@@ -9,7 +9,7 @@ from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
 
 from scalper.settings import _ENV_BOOTSTRAP_STATE, get_settings
-from storage import (
+from scalper.storage import (
     compute_paper_kpis,
     get_block_stats_last_24h,
     get_last_bias_json,

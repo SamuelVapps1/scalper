@@ -11,7 +11,7 @@ _repo = Path(__file__).resolve().parents[1]
 if str(_repo) not in sys.path:
     sys.path.insert(0, str(_repo))
 
-from storage import load_paper_state, save_paper_state
+from scalper.storage import load_paper_state, save_paper_state
 
 DEFAULT = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
 
