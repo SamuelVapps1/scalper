@@ -1,25 +1,46 @@
-"""Compatibility wrapper for project-root bybit module."""
+from typing import Dict, List
 
-from __future__ import annotations
+import requests
 
-import importlib.util
-from pathlib import Path
-
-_ROOT_BYBIT = None
+from config import BYBIT_BASE_URL
 
 
-def _root_bybit():
-    global _ROOT_BYBIT
-    if _ROOT_BYBIT is None:
-        root_bybit_path = Path(__file__).resolve().parent.parent / "bybit.py"
-        spec = importlib.util.spec_from_file_location("_root_bybit", root_bybit_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError("Unable to resolve project bybit module")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        _ROOT_BYBIT = module
-    return _ROOT_BYBIT
+def fetch_klines(symbol: str, interval: str, limit: int) -> List[Dict[str, float]]:
+    """
+    Fetch public market candles from Bybit v5 /market/kline.
+    This module only uses public market data and contains no trading endpoints.
+    """
+    url = f"{BYBIT_BASE_URL}/v5/market/kline"
+    params = {
+        "category": "linear",
+        "symbol": symbol,
+        "interval": interval,
+        "limit": str(limit),
+    }
+    response = requests.get(url, params=params, timeout=15)
+    response.raise_for_status()
 
+    payload = response.json()
+    if payload.get("retCode") != 0:
+        raise RuntimeError(f"Bybit API error: {payload.get('retMsg', 'unknown error')}")
 
-def __getattr__(name: str):
-    return getattr(_root_bybit(), name)
+    rows = payload.get("result", {}).get("list", [])
+    if not rows:
+        return []
+
+    # Bybit returns newest-first. Reverse so indicators are calculated oldest -> newest.
+    ordered = list(reversed(rows))
+
+    candles: List[Dict[str, float]] = []
+    for item in ordered:
+        candles.append(
+            {
+                "timestamp": int(item[0]),
+                "open": float(item[1]),
+                "high": float(item[2]),
+                "low": float(item[3]),
+                "close": float(item[4]),
+                "volume": float(item[5]),
+            }
+        )
+    return candles

@@ -1,36 +1,9 @@
-from __future__ import annotations
-
 import csv
-import importlib.util
-import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Dict, Any
 
 CSV_PATH = Path("signals_log.csv")
 CSV_HEADERS = ["timestamp_utc", "symbol", "setup", "direction", "close", "reason"]
-ENRICHED_CSV_PATH = Path("signals_enriched_log.csv")
-ENRICHED_HEADERS = [
-    "timestamp_utc",
-    "symbol",
-    "setup",
-    "direction",
-    "close",
-    "reason",
-    "entry",
-    "sl",
-    "tp",
-    "sl_pct",
-    "tp_pct",
-    "confidence",
-    "score",
-    "timeframe",
-    "intent_id",
-]
-
-_LOG = logging.getLogger(__name__)
-_root_storage_module = None
-_load_fail_logged = False
-_save_fail_logged = False
 
 
 def append_signal(signal: Dict[str, Any]) -> None:
@@ -50,72 +23,3 @@ def append_signal(signal: Dict[str, Any]) -> None:
                 "reason": signal.get("reason", ""),
             }
         )
-    enriched_exists = ENRICHED_CSV_PATH.exists()
-    with ENRICHED_CSV_PATH.open("a", newline="", encoding="utf-8") as f2:
-        writer2 = csv.DictWriter(f2, fieldnames=ENRICHED_HEADERS)
-        if not enriched_exists:
-            writer2.writeheader()
-        writer2.writerow(
-            {
-                "timestamp_utc": signal.get("timestamp_utc", signal.get("ts", "")),
-                "symbol": signal.get("symbol", ""),
-                "setup": signal.get("setup", signal.get("strategy", "")),
-                "direction": signal.get("direction", signal.get("side", "")),
-                "close": signal.get("close", ""),
-                "reason": signal.get("reason", ""),
-                "entry": signal.get("entry", signal.get("close", "")),
-                "sl": signal.get("sl", signal.get("sl_hint", "")),
-                "tp": signal.get("tp", signal.get("tp_hint", "")),
-                "sl_pct": signal.get("sl_pct", ""),
-                "tp_pct": signal.get("tp_pct", ""),
-                "confidence": signal.get("confidence", ""),
-                "score": signal.get("score", signal.get("signal_score", "")),
-                "timeframe": signal.get("timeframe", ""),
-                "intent_id": signal.get("intent_id", ""),
-            }
-        )
-
-
-def _root_storage():
-    """Load the project-root storage module (paper state implementation)."""
-    global _root_storage_module
-    if _root_storage_module is None:
-        root_storage_path = Path(__file__).resolve().parent.parent / "storage.py"
-        spec = importlib.util.spec_from_file_location("_root_storage", root_storage_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError("Unable to resolve project storage module")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _root_storage_module = mod
-    return _root_storage_module
-
-
-def load_paper_state() -> Dict[str, Any]:
-    global _load_fail_logged
-    try:
-        state = _root_storage().load_paper_state()
-        return state if isinstance(state, dict) else {}
-    except Exception as exc:
-        if not _load_fail_logged:
-            _LOG.info("paper_state_load_failed error=%s", exc.__class__.__name__)
-            _load_fail_logged = True
-        return {}
-
-
-def save_paper_state(state: Dict[str, Any]) -> None:
-    global _save_fail_logged
-    try:
-        module = _root_storage()
-        resolve_db_path = getattr(module, "_resolve_db_path", None)
-        if callable(resolve_db_path):
-            Path(resolve_db_path()).parent.mkdir(parents=True, exist_ok=True)
-        module.save_paper_state(state if isinstance(state, dict) else {})
-    except Exception as exc:
-        if not _save_fail_logged:
-            _LOG.info("paper_state_save_failed error=%s", exc.__class__.__name__)
-            _save_fail_logged = True
-
-
-def __getattr__(name: str):
-    """Delegate missing attributes to canonical root storage module."""
-    return getattr(_root_storage(), name)

@@ -150,20 +150,6 @@ Fix:
 
 ---
 
-## Architecture contracts (important)
-
-- `settings.py` is the canonical settings layer (Pydantic-based).
-- `config.py` is a compatibility facade for older callers.
-- `storage.py` is the canonical persistence facade.
-- `scalper/storage.py` provides backward-compatible wrappers and must export:
-  - `load_paper_state() -> dict`
-  - `save_paper_state(state: dict) -> None`
-
-When running script-style entry points (for example `python scalper/scanner.py`), prefer
-package imports (`from scalper.storage import ...`) to avoid ambiguous local-module resolution.
-
----
-
 ## Project files
 
 - `bot.py` - main loop and cooldown logic

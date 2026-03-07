@@ -102,11 +102,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Load settings, validate required env, print OK and exit 0, or print missing keys and exit non-zero.",
     )
-    parser.add_argument(
-        "--report",
-        action="store_true",
-        help="Print strategy validation report (trade stats by strategy/symbol, block reasons) and exit.",
-    )
     return parser.parse_args()
 
 
@@ -547,8 +542,6 @@ def run_scan_cycle(
         upsert_paper_position,
         insert_paper_trade,
         delete_paper_position,
-        insert_trade_record,
-        update_trade_record_on_close,
     )
     from telegram_format import (
         format_early_alert,
@@ -556,7 +549,6 @@ def run_scan_cycle(
         format_intent_block,
         format_paper_open,
         format_paper_close,
-        format_signal_alert,
     )
 
     run_context: Dict[str, Any] = {
@@ -582,7 +574,6 @@ def run_scan_cycle(
         "telegram_max_chars_compact": int(telegram_max_chars_compact),
         "telegram_max_chars_verbose": int(telegram_max_chars_verbose),
     }
-    telegram_policy = str(getattr(_config, "TELEGRAM_POLICY", "events") or "events").strip().lower()
     watchlist_set = set(watchlist)
     klines_5m_cache: Dict[str, List[Dict[str, float]]] = {}
     initial_state = load_paper_state()
@@ -697,37 +688,6 @@ def run_scan_cycle(
                             )
                         )
                         risk_state_after = load_paper_state()
-                        if close_reason == "TP":
-                            exit_price = updated.tp_price
-                        elif close_reason == "SL":
-                            exit_price = updated.sl_price
-                        else:
-                            exit_price = float(latest_candle.get("close", 0.0) or 0.0)
-                        risk_per_unit = abs(updated.entry_price - updated.sl_price)
-                        pnl_r = (
-                            float(pnl_usdt)
-                            / (risk_per_unit * updated.qty_est)
-                            if (risk_per_unit * updated.qty_est) > 0
-                            else None
-                        )
-                        if risk_per_unit > 0:
-                            if updated.side.upper() == "LONG":
-                                mfe_r = (updated.max_favorable_price - updated.entry_price) / risk_per_unit
-                                mae_r = (
-                                    (updated.entry_price - updated.min_adverse_price) / risk_per_unit
-                                    if updated.min_adverse_price > 0
-                                    else None
-                                )
-                            else:
-                                mfe_r = (updated.entry_price - updated.max_favorable_price) / risk_per_unit
-                                mae_r = (
-                                    (updated.min_adverse_price - updated.entry_price) / risk_per_unit
-                                    if updated.min_adverse_price > 0
-                                    else None
-                                )
-                        else:
-                            mfe_r = None
-                            mae_r = None
                         close_event = {
                             "symbol": updated.symbol,
                             "side": updated.side,
@@ -739,23 +699,11 @@ def run_scan_cycle(
                             "pnl_usdt": float(pnl_usdt),
                             "close_reason": close_reason,
                             "status": "CLOSED",
-                            "entry_price": updated.entry_price,
-                            "close_price": exit_price,
-                            "pnl_r": pnl_r,
-                            "mfe": mfe_r,
-                            "mae": mae_r,
                         }
                         closed_trades.append(close_event)
                         if paper_broker is not None:
                             close_event["position_id"] = str(updated.intent_id or "")
                             paper_broker.persist_close(close_event)
-                        try:
-                            update_trade_record_on_close(
-                                str(updated.intent_id or ""),
-                                close_event,
-                            )
-                        except Exception as _e:
-                            logging.debug("update_trade_record_on_close failed: %s", _e)
                         logging.info(
                             "PAPER CLOSE %s %s %s pnl=%.4f reason=%s",
                             updated.symbol,
@@ -1088,107 +1036,6 @@ def run_scan_cycle(
                         )
                         continue
 
-                    # Optional "signals" stream: enriched pre-risk signal alerts with deterministic TP/SL/conf proxy.
-                    if telegram_policy in {"signals", "both"} and telegram_token and telegram_chat_id:
-                        signal_meta = dict(signal.get("meta") or {})
-                        conf_source = "confidence"
-                        conf_val = signal.get("confidence")
-                        if conf_val is None:
-                            conf_val = signal.get("score")
-                            conf_source = "score_proxy"
-                        if conf_val is None:
-                            conf_val = signal.get("signal_score")
-                            conf_source = "signal_score_proxy"
-                        try:
-                            conf_num = float(conf_val) if conf_val is not None else 0.0
-                        except (TypeError, ValueError):
-                            conf_num = 0.0
-                            conf_source = "fallback_zero"
-                        entry_price = float(signal.get("close", 0.0) or 0.0)
-                        sl_price = None
-                        tp_price = None
-                        try:
-                            sl_hint = signal_meta.get("sl_hint", signal.get("sl_hint"))
-                            tp_hint = signal_meta.get("tp_hint", signal.get("tp_hint"))
-                            if isinstance(sl_hint, (int, float)):
-                                sl_price = float(sl_hint)
-                            if isinstance(tp_hint, (int, float)):
-                                tp_price = float(tp_hint)
-                        except Exception:
-                            pass
-                        snap_for_signal = symbol_context.get("market_snapshot", {}) or {}
-                        if (sl_price is None or tp_price is None) and candles:
-                            preview_intent = {
-                                "symbol": intent_symbol,
-                                "side": intent_side,
-                                "setup": intent_strategy,
-                                "strategy": intent_strategy,
-                                "direction": intent_side,
-                                "entry_type": str(signal.get("entry_type", "MARKET_SIM") or "MARKET_SIM"),
-                                "meta": signal_meta,
-                                "level_ref": signal.get("level_ref"),
-                            }
-                            try:
-                                preview_pos, _ = try_open_position(
-                                    preview_intent,
-                                    candles,
-                                    snap_for_signal,
-                                    paper_position_usdt=getattr(risk_autopilot, "paper_position_usdt", 20.0),
-                                    sl_atr_mult=getattr(risk_autopilot, "paper_sl_atr", 1.0),
-                                    tp_atr_mult=getattr(risk_autopilot, "paper_tp_atr", 1.5),
-                                    intent_id=str(signal.get("intent_id", "")),
-                                )
-                            except Exception:
-                                preview_pos = None
-                            if preview_pos:
-                                entry_price = float(preview_pos.get("entry_price", entry_price) or entry_price)
-                                sl_price = float(preview_pos.get("sl_price", 0.0) or 0.0) or sl_price
-                                tp_price = float(preview_pos.get("tp_price", 0.0) or 0.0) or tp_price
-                        if (sl_price is None or tp_price is None) and entry_price > 0:
-                            atr_now = float(snap_for_signal.get("atr14", 0.0) or 0.0)
-                            if atr_now > 0:
-                                sl_mult = float(getattr(risk_autopilot, "paper_sl_atr", 1.0) or 1.0)
-                                tp_mult = float(getattr(risk_autopilot, "paper_tp_atr", 1.5) or 1.5)
-                                if str(intent_side).upper() == "SHORT":
-                                    sl_price = entry_price + sl_mult * atr_now
-                                    tp_price = entry_price - tp_mult * atr_now
-                                else:
-                                    sl_price = entry_price - sl_mult * atr_now
-                                    tp_price = entry_price + tp_mult * atr_now
-                        sl_pct_sig = (
-                            abs(entry_price - float(sl_price)) / max(entry_price, 1e-10) * 100.0
-                            if sl_price is not None and entry_price > 0
-                            else None
-                        )
-                        tp_pct_sig = (
-                            abs(float(tp_price) - entry_price) / max(entry_price, 1e-10) * 100.0
-                            if tp_price is not None and entry_price > 0
-                            else None
-                        )
-                        signal_alert = {
-                            "symbol": intent_symbol,
-                            "side": intent_side,
-                            "strategy": intent_strategy,
-                            "reason": intent_reason,
-                            "confidence": conf_num,
-                            "confidence_source": conf_source,
-                            "entry": entry_price if entry_price > 0 else signal.get("close"),
-                            "sl": sl_price,
-                            "tp": tp_price,
-                            "sl_pct": sl_pct_sig,
-                            "tp_pct": tp_pct_sig,
-                            "bar_ts_used": bar_ts_used,
-                            "ts": intent_ts,
-                        }
-                        _send_telegram_with_logging(
-                            kind="signal",
-                            token=telegram_token,
-                            chat_id=telegram_chat_id,
-                            text=format_signal_alert(signal_alert, {"tf": str(interval), **format_caps}),
-                        )
-                    elif telegram_policy in {"signals", "both"}:
-                        _warn_missing_telegram_once()
-
                     state_for_risk = load_paper_state()
                     risk_snapshot = {
                         "equity": float(getattr(risk_autopilot, "paper_equity_usdt", 0.0) or 0.0)
@@ -1309,53 +1156,6 @@ def run_scan_cycle(
                                 opened_position.entry_price
                                 - opened_position.sl_price
                             ) / max(opened_position.entry_price, 1e-10)
-                            tp_pct_val = (
-                                abs(
-                                    opened_position.tp_price
-                                    - opened_position.entry_price
-                                )
-                                / max(opened_position.entry_price, 1e-10)
-                                * 100.0
-                            )
-                            sl_pct_val = sl_pct * 100.0
-                            atr_val = float(
-                                (snap or {}).get("atr14", 0.0)
-                                or opened_position.atr_at_entry
-                                or 0.0
-                            )
-                            atr_pct = (
-                                (atr_val / max(opened_position.entry_price, 1e-10))
-                                * 100.0
-                                if atr_val
-                                else None
-                            )
-                            bias_flags_str = ""
-                            if bias_list:
-                                try:
-                                    import json as _json
-                                    bias_flags_str = _json.dumps(bias_list[-1])[:500]
-                                except Exception:
-                                    pass
-                            try:
-                                insert_trade_record({
-                                    "intent_id": str(signal.get("intent_id", "") or pos_dict.get("intent_id", "")),
-                                    "ts_open": pos_dict.get("entry_ts", bar_ts_used),
-                                    "symbol": opened_position.symbol,
-                                    "strategy": opened_position.strategy,
-                                    "side": opened_position.side,
-                                    "tf": str(interval),
-                                    "entry": opened_position.entry_price,
-                                    "sl": opened_position.sl_price,
-                                    "tp": opened_position.tp_price,
-                                    "sl_pct": sl_pct_val,
-                                    "tp_pct": tp_pct_val,
-                                    "confidence": float(intent_confidence) if intent_confidence is not None else None,
-                                    "atr_pct": atr_pct,
-                                    "spread_bps": getattr(_config, "SLIPPAGE_BPS", None) or None,
-                                    "bias_flags": bias_flags_str or None,
-                                })
-                            except Exception as _e:
-                                logging.debug("insert_trade_record failed: %s", _e)
                             logging.info(
                                 "PAPER OPEN %s %s %s bar_ts_used=%s notional=%.4f qty=%.6f sl_pct=%.6f",
                                 opened_position.symbol,
@@ -2087,102 +1887,6 @@ def run_scan_loop_worker(
             break
 
 
-def run_report() -> int:
-    """Print strategy validation report from trade_records and block reasons. Safe on empty DB."""
-    from collections import defaultdict
-
-    from storage import get_trade_records_closed, get_block_reasons_top_n
-
-    trades = get_trade_records_closed()
-    blocks = get_block_reasons_top_n(5)
-
-    # Overall
-    n = len(trades)
-    if n == 0:
-        print("--- Strategy validation report (no closed trades) ---")
-        print("Overall: 0 trades")
-        print("Top 5 block reasons:")
-        for b in blocks:
-            print(f"  {b.get('count', 0)}  {b.get('block_reason', '')}")
-        return 0
-
-    pnl_r_list = [t.get("pnl_r") for t in trades if t.get("pnl_r") is not None]
-    expectancy_r = sum(pnl_r_list) / len(pnl_r_list) if pnl_r_list else 0.0
-    wins = [t for t in trades if (t.get("pnl_usdt") or 0) > 0]
-    losses = [t for t in trades if (t.get("pnl_usdt") or 0) < 0]
-    gross_wins = sum(t.get("pnl_usdt") or 0 for t in wins)
-    gross_losses = abs(sum(t.get("pnl_usdt") or 0 for t in losses))
-    pf = gross_wins / gross_losses if gross_losses > 0 else (float("inf") if gross_wins > 0 else 0.0)
-    winrate = len(wins) / n if n else 0.0
-    bars_held_list = [t.get("bars_held") for t in trades if t.get("bars_held") is not None]
-    avg_bars_held = sum(bars_held_list) / len(bars_held_list) if bars_held_list else 0.0
-
-    # Paper equity curve and max DD
-    cum = 0.0
-    peak = 0.0
-    max_dd = 0.0
-    for t in sorted(trades, key=lambda x: x.get("ts_close") or 0):
-        cum += float(t.get("pnl_usdt") or 0)
-        if cum > peak:
-            peak = cum
-        dd = peak - cum
-        if dd > max_dd:
-            max_dd = dd
-
-    print("--- Strategy validation report ---")
-    print("Overall:")
-    print(f"  trades: {n}")
-    print(f"  expectancy(R): {expectancy_r:.4f}")
-    print(f"  profit factor: {pf:.2f}")
-    print(f"  win rate: {winrate:.1%}")
-    print(f"  avg bars held: {avg_bars_held:.1f}")
-    print(f"  max DD (paper equity): {max_dd:.2f} USDT")
-
-    by_strategy = defaultdict(lambda: {"n": 0, "pnl_usdt": 0.0, "pnl_r_sum": 0.0, "bars": []})
-    for t in trades:
-        s = str(t.get("strategy") or "").strip() or "(blank)"
-        by_strategy[s]["n"] += 1
-        by_strategy[s]["pnl_usdt"] += float(t.get("pnl_usdt") or 0)
-        if t.get("pnl_r") is not None:
-            by_strategy[s]["pnl_r_sum"] += t["pnl_r"]
-        if t.get("bars_held") is not None:
-            by_strategy[s]["bars"].append(t["bars_held"])
-    top_strategy = sorted(
-        [
-            (
-                s,
-                d["n"],
-                d["pnl_usdt"],
-                d["pnl_r_sum"] / d["n"] if d["n"] else 0.0,
-                sum(d["bars"]) / len(d["bars"]) if d["bars"] else 0.0,
-            )
-            for s, d in by_strategy.items()
-        ],
-        key=lambda x: -x[1],
-    )[:10]
-    print("By strategy (top 10):")
-    for s, cnt, pnl, exp_r, ab in top_strategy:
-        print(f"  {s}: n={cnt} pnl_usdt={pnl:.2f} expectancy_r={exp_r:.4f} avg_bars={ab:.1f}")
-
-    by_symbol = defaultdict(lambda: {"n": 0, "pnl_usdt": 0.0})
-    for t in trades:
-        sym = str(t.get("symbol") or "").strip() or "(blank)"
-        by_symbol[sym]["n"] += 1
-        by_symbol[sym]["pnl_usdt"] += float(t.get("pnl_usdt") or 0)
-    top_symbol = sorted(
-        [(s, d["n"], d["pnl_usdt"]) for s, d in by_symbol.items()],
-        key=lambda x: -x[1],
-    )[:10]
-    print("By symbol (top 10):")
-    for s, cnt, pnl in top_symbol:
-        print(f"  {s}: n={cnt} pnl_usdt={pnl:.2f}")
-
-    print("Top 5 block reasons:")
-    for b in blocks:
-        print(f"  {b.get('count', 0)}  {b.get('block_reason', '')}")
-    return 0
-
-
 def run_with_args(args: argparse.Namespace, config_module=None) -> int:
     logger = logging.getLogger(__name__)
 
@@ -2219,8 +1923,6 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
         return run_reconcile(config, args.reconcile)
     if args.sizing_test:
         return run_sizing_test(config)
-    if getattr(args, "report", False):
-        return run_report()
 
     if args.serve_dashboard:
         from dashboard_server import run_dashboard_server
