@@ -140,6 +140,14 @@ def _fingerprint_group_key(symbol: str, strategy: str, side: str) -> str:
     return f"{symbol}|{strategy}|{side}"
 
 
+def _apply_preview_gate(allowed: bool, gate_reason: str, preview: Dict[str, Any]) -> tuple[bool, str]:
+    if not allowed:
+        return (False, str(gate_reason or ""))
+    if not preview or not bool(preview.get("ok")):
+        return (False, str((preview or {}).get("reason") or "PREVIEW_BUILD_FAILED"))
+    return (True, str(gate_reason or ""))
+
+
 def _early_group_key(symbol: str, bar_ts_15m: str) -> str:
     return f"{symbol}|{bar_ts_15m}"
 
@@ -550,6 +558,7 @@ def run_scan_cycle(
         format_paper_open,
         format_paper_close,
     )
+    from scalper.trade_preview import build_trade_preview
 
     run_context: Dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -1065,6 +1074,50 @@ def run_scan_cycle(
                     meta = dict(signal.get("meta") or {})
                     if "retest_level" not in meta and "failed_level" not in meta:
                         meta["retest_level"] = signal.get("level_ref")
+                    snap = symbol_context.get("market_snapshot", {}) or {}
+                    preview: Dict[str, Any] = {}
+                    execution_status = "not_opened"
+                    if allowed:
+                        preview = build_trade_preview(
+                            signal={
+                                **dict(signal or {}),
+                                "symbol": intent_symbol,
+                                "side": intent_side,
+                                "strategy": intent_strategy,
+                                "confidence": float(intent_confidence),
+                                "bar_ts_used": bar_ts_used,
+                            },
+                            market_snapshot=snap,
+                            candles=candles,
+                            mtf_snapshot=mtf_snap,
+                            risk_settings=settings_obj.risk,
+                            equity_usdt=(
+                                paper_broker.current_equity()
+                                if paper_broker is not None
+                                else float(getattr(risk_autopilot, "paper_position_usdt", 20.0) or 20.0)
+                            ),
+                            for_execution=True,
+                        )
+                        allowed, gate_reason = _apply_preview_gate(allowed, gate_reason, preview)
+                        if not allowed:
+                            logging.warning(
+                                "ALLOW downgraded to BLOCK %s %s %s reason=%s",
+                                intent_symbol,
+                                intent_strategy,
+                                intent_side,
+                                gate_reason,
+                            )
+                        else:
+                            logging.info(
+                                "PREVIEW built %s %s %s entry=%.8f sl=%.8f tp=%.8f atr_source=%s",
+                                intent_symbol,
+                                intent_strategy,
+                                intent_side,
+                                float(preview.get("entry", 0.0) or 0.0),
+                                float(preview.get("sl", 0.0) or 0.0),
+                                float(preview.get("tp", 0.0) or 0.0),
+                                str(preview.get("atr_source", "")),
+                            )
                     trade_intent = {
                         "id": str(signal.get("intent_id") or fp),
                         "ts": intent_ts,
@@ -1117,15 +1170,13 @@ def run_scan_cycle(
                     save_paper_state(latest_state)
                     if allowed:
                         has_any_allow = True
-                        snap = symbol_context.get("market_snapshot", {}) or {}
+                        opened_position = None
                         if paper_broker is not None:
-                            pos_dict, skip_reason = paper_broker.open_from_intent(
-                                intent=trade_intent,
-                                candle=(candles[-1] if candles else {}),
-                                strategy=intent_strategy,
-                                fallback_atr=float(snap.get("atr14", 0.0) or 0.0),
+                            pos_dict, skip_reason = paper_broker.open_from_preview(
+                                preview=preview,
                                 intent_id=str(signal.get("intent_id", "")),
                                 ts=str((candles[-1] if candles else {}).get("timestamp_utc", intent_ts)),
+                                strategy=intent_strategy,
                             )
                         else:
                             pos_dict, skip_reason = try_open_position(
@@ -1138,11 +1189,11 @@ def run_scan_cycle(
                                 sl_atr_mult=getattr(risk_autopilot, "paper_sl_atr", 1.0),
                                 tp_atr_mult=getattr(risk_autopilot, "paper_tp_atr", 1.5),
                                 intent_id=str(signal.get("intent_id", "")),
+                                preview=preview,
                             )
-                        opened_position = (
-                            PaperPosition.from_dict(pos_dict) if pos_dict else None
-                        )
                         if pos_dict:
+                            execution_status = "open"
+                            opened_position = PaperPosition.from_dict(pos_dict)
                             state = load_paper_state()
                             open_positions = list(
                                 state.get("open_positions", []) or []
@@ -1175,30 +1226,10 @@ def run_scan_cycle(
                                         "strategy": opened_position.strategy,
                                         "confidence": float(intent_confidence),
                                         "entry": opened_position.entry_price,
-                                        "sl": opened_position.sl_price,
-                                        "tp": opened_position.tp_price,
-                                        "sl_pct": (
-                                            abs(
-                                                opened_position.entry_price
-                                                - opened_position.sl_price
-                                            )
-                                            / max(
-                                                opened_position.entry_price,
-                                                1e-10,
-                                            )
-                                            * 100.0
-                                        ),
-                                        "tp_pct": (
-                                            abs(
-                                                opened_position.tp_price
-                                                - opened_position.entry_price
-                                            )
-                                            / max(
-                                                opened_position.entry_price,
-                                                1e-10,
-                                            )
-                                            * 100.0
-                                        ),
+                                        "sl": float(preview.get("sl", opened_position.sl_price)),
+                                        "tp": float(preview.get("tp", opened_position.tp_price)),
+                                        "sl_pct": float(preview.get("sl_pct", 0.0) or 0.0),
+                                        "tp_pct": float(preview.get("tp_pct", 0.0) or 0.0),
                                         "qty": opened_position.qty_est,
                                         "notional": opened_position.notional_usdt,
                                         "bar_ts_used": bar_ts_used,
@@ -1207,6 +1238,8 @@ def run_scan_cycle(
                                         ),
                                         "risk_reason": gate_reason,
                                         "note": intent_reason,
+                                        "preview_status": str(preview.get("reason", "")),
+                                        "execution_status": execution_status,
                                     },
                                     {
                                         "tf": str(interval),
@@ -1247,6 +1280,14 @@ def run_scan_cycle(
                                 )
                             else:
                                 _warn_missing_telegram_once()
+                        else:
+                            logging.warning(
+                                "Paper open skipped %s %s %s reason=%s",
+                                intent_symbol,
+                                intent_strategy,
+                                intent_side,
+                                str(skip_reason or "UNKNOWN"),
+                            )
                         if telegram_token and telegram_chat_id:
                             msg = format_intent_allow(
                                 {
@@ -1262,55 +1303,16 @@ def run_scan_cycle(
                                 {"reason": gate_reason},
                                 {
                                     "tf": str(interval),
-                                    "entry": (
-                                        opened_position.entry_price
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "sl": (
-                                        opened_position.sl_price
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "tp": (
-                                        opened_position.tp_price
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "sl_pct": (
-                                        abs(
-                                            opened_position.entry_price
-                                            - opened_position.sl_price
-                                        )
-                                        / max(
-                                            opened_position.entry_price, 1e-10
-                                        )
-                                        * 100.0
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "tp_pct": (
-                                        abs(
-                                            opened_position.tp_price
-                                            - opened_position.entry_price
-                                        )
-                                        / max(
-                                            opened_position.entry_price, 1e-10
-                                        )
-                                        * 100.0
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "qty": (
-                                        opened_position.qty_est
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "notional": (
-                                        opened_position.notional_usdt
-                                        if opened_position
-                                        else None
-                                    ),
+                                    "entry": float(preview.get("entry", 0.0) or 0.0),
+                                    "sl": float(preview.get("sl", 0.0) or 0.0),
+                                    "tp": float(preview.get("tp", 0.0) or 0.0),
+                                    "sl_pct": float(preview.get("sl_pct", 0.0) or 0.0),
+                                    "tp_pct": float(preview.get("tp_pct", 0.0) or 0.0),
+                                    "qty": float(preview.get("qty", 0.0) or 0.0),
+                                    "notional": float(preview.get("notional", 0.0) or 0.0),
+                                    "preview_status": "ok",
+                                    "execution_status": execution_status,
+                                    "atr_source": str(preview.get("atr_source", "")),
                                     "bar_ts_used": bar_ts_used,
                                     "bias": str(signal.get("bias", "") or ""),
                                     "break_level": signal.get("break_level"),

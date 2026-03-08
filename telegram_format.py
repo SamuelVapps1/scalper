@@ -10,7 +10,6 @@ STRATEGY_HUMAN_NOTES = {
     "FORCE_TEST": "Synthetic stress-test intent",
 }
 
-
 _TRUNCATED_SUFFIX = "...(truncated)"
 
 
@@ -39,11 +38,7 @@ def _truncate_message(text: str, max_chars: int) -> str:
     return msg[:keep] + _TRUNCATED_SUFFIX
 
 
-def _compact_or_verbose(
-    lines_compact: list[str],
-    lines_verbose: list[str],
-    ctx: Dict[str, Any],
-) -> str:
+def _compact_or_verbose(lines_compact: list[str], lines_verbose: list[str], ctx: Dict[str, Any]) -> str:
     fmt = str(ctx.get("telegram_format", "compact") or "compact").strip().lower()
     compact_max = int(ctx.get("telegram_max_chars_compact", 900) or 900)
     verbose_max = int(ctx.get("telegram_max_chars_verbose", 2500) or 2500)
@@ -73,12 +68,24 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
     tp_pct = _fmt_float(market_ctx.get("tp_pct"), 2)
     qty = _fmt_float(market_ctx.get("qty"), 6)
     notional = _fmt_float(market_ctx.get("notional"), 2)
-    levels_reason = str(market_ctx.get("levels_reason", "") or "")
-    if not levels_reason:
-        if sl == "n/a" or tp == "n/a":
-            levels_reason = "levels_unavailable"
-        else:
-            levels_reason = "ok"
+    preview_status = str(market_ctx.get("preview_status", "ok") or "ok")
+    execution_status = str(market_ctx.get("execution_status", "not_opened") or "not_opened")
+    if entry == "n/a" or sl == "n/a" or tp == "n/a":
+        fallback_reason = str(risk.get("reason", "") or "PREVIEW_BUILD_FAILED")
+        return format_intent_block(
+            intent,
+            {"reason": fallback_reason},
+            {
+                "tf": tf,
+                "open_now": market_ctx.get("open_now", 0),
+                "open_max": market_ctx.get("open_max", 0),
+                "trades_today": market_ctx.get("trades_today", 0),
+                "cooldown_until_utc": market_ctx.get("cooldown_until_utc", ""),
+                "telegram_format": market_ctx.get("telegram_format", "compact"),
+                "telegram_max_chars_compact": market_ctx.get("telegram_max_chars_compact", 900),
+                "telegram_max_chars_verbose": market_ctx.get("telegram_max_chars_verbose", 2500),
+            },
+        )
     bar_ts_used = str(market_ctx.get("bar_ts_used", "") or "")
     intent_id = str(intent.get("intent_id", market_ctx.get("intent_id", "")) or "")
     note = str(intent.get("reason", "") or "")
@@ -104,7 +111,7 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
         f"setup={human_note} bias={bias or 'n/a'}{levels_str}",
         f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct}",
         f"qty={qty} notional={notional}",
-        f"levels_reason={levels_reason}",
+        f"preview_status={preview_status} execution_status={execution_status}",
         f"bar_ts={bar_ts_used}",
         f"risk open={open_now}/{open_max} trades={trades_today} cooldown={cooldown_state}",
     ]
@@ -114,7 +121,7 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
         f"break={_fmt_float(break_level) if break_level is not None else 'n/a'} retest={_fmt_float(retest_level) if retest_level is not None else 'n/a'}",
         f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct} qty={qty} notional={notional}",
         f"rec_sl={rec_sl}",
-        f"levels_reason={levels_reason}",
+        f"preview_status={preview_status} execution_status={execution_status}",
         f"bar_ts_used={bar_ts_used} intent_id={intent_id}",
         f"setup_note={note}",
         f"risk_reason={risk_reason}",
@@ -133,12 +140,7 @@ def format_intent_block(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
     note = str(intent.get("reason", "") or "")
     risk_reason = str(risk.get("reason", "") or "")
     human_note = STRATEGY_HUMAN_NOTES.get(str(intent.get("strategy", "")), note or "n/a")
-
-    compact = [
-        f"BLOCK[{tf}m] {symbol} {side} conf={conf}",
-        f"setup={human_note}",
-        f"risk_reason={risk_reason}",
-    ]
+    compact = [f"BLOCK[{tf}m] {symbol} {side} conf={conf}", f"setup={human_note}", f"risk_reason={risk_reason}"]
     verbose = [
         f"⛔ BLOCKED[{tf}m]",
         f"{symbol} {side} {strategy} conf={conf}",
@@ -165,7 +167,6 @@ def format_paper_close(trade: Dict[str, Any], state_after: Dict[str, Any]) -> st
     consec_losses = int(state_after.get("consec_losses", state_after.get("consecutive_losses", 0)) or 0)
     cooldown = _cooldown_text(state_after.get("cooldown_until_utc"))
     cooldown_state = _cooldown_on_off(state_after.get("cooldown_until_utc"))
-
     compact = [
         f"CLOSE[{tf}m] {symbol} {side}",
         f"pnl={pnl} reason={close_reason} bars={bars_held}",

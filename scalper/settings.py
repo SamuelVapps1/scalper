@@ -379,6 +379,10 @@ class RiskSettings(BaseSettings):
     spread_bps: float = Field(2.0, env="SPREAD_BPS")
     slippage_bps: float = Field(3.0, env="SLIPPAGE_BPS")
     risk_per_trade_pct: float = Field(0.15, env="RISK_PER_TRADE_PCT")
+    preview_min_rr: float = Field(1.1, env="PREVIEW_MIN_RR")
+    preview_min_atr_pct: float = Field(0.05, env="PREVIEW_MIN_ATR_PCT")
+    preview_max_atr_pct: float = Field(12.0, env="PREVIEW_MAX_ATR_PCT")
+    preview_max_retest_drift_pct: float = Field(1.0, env="PREVIEW_MAX_RETEST_DRIFT_PCT")
     daily_loss_limit_pct: float = Field(1.0, env="DAILY_LOSS_LIMIT_PCT")
     max_dd_pct: float = Field(12.0, env="MAX_DD_PCT")
     max_trades_day: int = Field(12, env="MAX_TRADES_DAY")
@@ -413,6 +417,8 @@ class RiskSettings(BaseSettings):
             "paper_sl_atr": 1.0, "paper_tp_atr": 1.5, "paper_start_equity_usdt": 1000.0,
             "paper_slippage_pct": 0.01, "paper_fee_pct": 0.055,
             "spread_bps": 2.0, "slippage_bps": 3.0, "risk_per_trade_pct": 0.15,
+            "preview_min_rr": 1.1, "preview_min_atr_pct": 0.05, "preview_max_atr_pct": 12.0,
+            "preview_max_retest_drift_pct": 1.0,
             "daily_loss_limit_pct": 1.0, "max_dd_pct": 12.0, "max_symbol_notional_pct": 30.0,
         }
         str_defaults = {
@@ -524,6 +530,15 @@ class RiskSettings(BaseSettings):
         values["spread_bps"] = max(0.0, float(values.get("spread_bps", 2.0)))
         values["slippage_bps"] = max(0.0, float(values.get("slippage_bps", 3.0)))
         values["risk_per_trade_pct"] = max(0.0, float(values.get("risk_per_trade_pct", 0.15)))
+        values["preview_min_rr"] = max(0.1, float(values.get("preview_min_rr", 1.1)))
+        values["preview_min_atr_pct"] = max(0.0, float(values.get("preview_min_atr_pct", 0.05)))
+        values["preview_max_atr_pct"] = max(
+            float(values.get("preview_min_atr_pct", 0.05)),
+            float(values.get("preview_max_atr_pct", 12.0)),
+        )
+        values["preview_max_retest_drift_pct"] = max(
+            0.0, float(values.get("preview_max_retest_drift_pct", 1.0))
+        )
         values["daily_loss_limit_pct"] = max(0.0, float(values.get("daily_loss_limit_pct", 1.0)))
         values["max_dd_pct"] = max(0.0, float(values.get("max_dd_pct", 12.0)))
         values["max_trades_day"] = max(0, int(values.get("max_trades_day", 12)))
