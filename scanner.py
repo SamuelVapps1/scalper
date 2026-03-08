@@ -527,8 +527,8 @@ def run_scan_cycle(
         evaluate_symbol_intents,
     )
     from scalper.strategy_engine import StrategyEngine
-    import storage as state_store
-    from storage import (
+    import scalper.storage as state_store
+    from scalper.storage import (
         append_signal,
         load_paper_state,
         save_paper_state,
@@ -1621,7 +1621,7 @@ def _emit_scan_summary_and_heartbeat(
             _SCANS_COMPLETED,
         )
     if may_send_heartbeat:
-        from storage import get_last_scan_ts
+        from scalper.storage import get_last_scan_ts
 
         last_scan_ts = get_last_scan_ts() or 0
         watchlist = run_context.get("watchlist", []) or []
@@ -1663,7 +1663,7 @@ def emit_dashboard(
     run_mode: str = "loop",
 ) -> None:
     from dashboard import build_dashboard_report
-    from storage import load_paper_state
+    from scalper.storage import load_paper_state
     from telegram_format import format_dashboard_compact
 
     ctx = dict(run_context)
@@ -1727,7 +1727,7 @@ def _run_one_scan_iteration(
     symbols_override: Optional[list[str]] = None,
     paper_mode: bool = False,
 ) -> None:
-    from storage import set_last_scan_ts
+    from scalper.storage import set_last_scan_ts
 
     watchlist, watchlist_mode = resolve_watchlist(config_module, symbols_override=symbols_override)
     if not watchlist:
@@ -1768,7 +1768,7 @@ def _run_one_scan_iteration(
         telegram_max_chars_verbose=int(getattr(config_module, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
         paper_mode=paper_mode,
     )
-    from storage import set_selected_watchlist, set_stall_alerted
+    from scalper.storage import set_selected_watchlist, set_stall_alerted
 
     set_last_scan_ts(int(time.time()))
     set_stall_alerted(False)
@@ -1795,7 +1795,7 @@ def _check_stall_and_alert(
     """If stalled (no successful scan for 2*SCAN_SECONDS+30), send Telegram alert once per episode."""
     if not telegram_token or not telegram_chat_id:
         return
-    from storage import get_last_scan_ts, get_last_scan_error, get_stall_alerted, set_stall_alerted
+    from scalper.storage import get_last_scan_ts, get_last_scan_error, get_stall_alerted, set_stall_alerted
 
     scan_sec = max(1, int(getattr(config_module, "SCAN_SECONDS", 60)))
     stall_threshold = 2 * scan_sec + 30
@@ -1827,7 +1827,7 @@ def _run_one_scan_iteration_with_timeout(
     symbols_override: Optional[list[str]],
     paper_mode: bool,
 ) -> bool:
-    from storage import set_last_scan_error
+    from scalper.storage import set_last_scan_error
 
     _check_stall_and_alert(
         config_module=config_module,
@@ -2015,7 +2015,7 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
                 force_intents=args.force_intents,
                 risk_autopilot=risk_autopilot,
             )
-            from storage import set_last_scan_ts, set_selected_watchlist, set_stall_alerted
+            from scalper.storage import set_last_scan_ts, set_selected_watchlist, set_stall_alerted
 
             set_last_scan_ts(int(time.time()))
             set_stall_alerted(False)
@@ -2071,7 +2071,7 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
             telegram_max_chars_verbose=int(getattr(config, "TELEGRAM_MAX_CHARS_VERBOSE", 2500)),
             paper_mode=paper_mode,
         )
-        from storage import set_last_scan_ts, set_selected_watchlist, set_stall_alerted
+        from scalper.storage import set_last_scan_ts, set_selected_watchlist, set_stall_alerted
 
         set_last_scan_ts(int(time.time()))
         set_stall_alerted(False)
@@ -2090,7 +2090,7 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
     if args.force_intents > 0:
         logging.warning("--force-intents is only applied with --once; ignoring in loop mode.")
 
-    from storage import set_last_scan_error, set_last_scan_ts, set_selected_watchlist, set_stall_alerted
+    from scalper.storage import set_last_scan_error, set_last_scan_ts, set_selected_watchlist, set_stall_alerted
 
     scan_seconds = max(1, int(config.SCAN_SECONDS))
     logging.info(
