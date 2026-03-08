@@ -1,2 +1,0 @@
-window,test_end_days_ago,test_start_days_ago,run_id,trades_total,wins,losses,winrate,expectancy_R,profit_factor,avg_win_R,avg_loss_R,max_dd_usdt,top_skip_reason
-1,0,30,f8e8fa1e37be,7,1,6,0.14285714285714285,-0.4791,0.1551,1.2315,-0.7642,5.99,trend_weak:298

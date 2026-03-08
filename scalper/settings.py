@@ -7,17 +7,9 @@ from pathlib import Path
 from typing import List
 
 try:
-    from pydantic.v1 import BaseModel, Field, root_validator
-except ImportError:
-    from pydantic import BaseModel, Field, root_validator  # type: ignore[assignment]
-
-try:
-    from pydantic_settings import BaseSettings
-except ImportError:
-    try:
-        from pydantic.v1 import BaseSettings
-    except ImportError:
-        from pydantic import BaseSettings  # type: ignore[assignment]
+    from pydantic.v1 import BaseModel, BaseSettings, Field, root_validator
+except ImportError:  # pragma: no cover
+    from pydantic import BaseModel, BaseSettings, Field, root_validator  # type: ignore[assignment]
 
 try:
     from dotenv import dotenv_values, find_dotenv, load_dotenv
@@ -193,7 +185,7 @@ class TelegramSettings(BaseSettings):
         values["max_chars_compact"] = 900 if int(values.get("max_chars_compact", 900)) < 80 else int(values["max_chars_compact"])
         values["max_chars_verbose"] = 2500 if int(values.get("max_chars_verbose", 2500)) < 200 else int(values["max_chars_verbose"])
         policy = str(values.get("policy") or "events").lower()
-        values["policy"] = policy if policy in {"events", "periodic", "off"} else "events"
+        values["policy"] = policy if policy in {"off", "signals", "events", "both"} else "events"
         values["early_max_per_symbol_per_15m"] = max(1, int(values.get("early_max_per_symbol_per_15m", 1)))
         return values
 
@@ -205,6 +197,12 @@ class RiskSettings(BaseSettings):
     scan_cycle_timeout_seconds: int = Field(0, env="SCAN_CYCLE_TIMEOUT_SECONDS")
     watchlist_raw: str = Field("", env="WATCHLIST")
     watchlist_mode: str = Field("static", env="WATCHLIST_MODE")
+    watchlist_universe_n: int = Field(200, env="WATCHLIST_UNIVERSE_N")
+    watchlist_batch_n: int = Field(20, env="WATCHLIST_BATCH_N")
+    watchlist_refresh_seconds: int = Field(600, env="WATCHLIST_REFRESH_SECONDS")
+    watchlist_rotate_mode: str = Field("roundrobin", env="WATCHLIST_ROTATE_MODE")
+    watchlist_rotate_seed: int = Field(0, env="WATCHLIST_ROTATE_SEED")
+    rotation_state_file: str = Field("data/watchlist_rotation_state.json", env="ROTATION_STATE_FILE")
     watchlist_top_n: int = Field(10, env="WATCHLIST_TOP_N")
     watchlist_refresh_minutes: int = Field(60, env="WATCHLIST_REFRESH_MINUTES")
     watchlist_min_price: float = Field(0.01, env="WATCHLIST_MIN_PRICE")
@@ -273,6 +271,21 @@ class RiskSettings(BaseSettings):
     fail_closed_on_snapshot_missing: bool = Field(True, env="FAIL_CLOSED_ON_SNAPSHOT_MISSING")
 
     @root_validator(pre=True)
+    def _sanitize_empty_numeric_envs(cls, values):
+        for key, default in {
+            "watchlist_min_price": 0.0,
+            "watchlist_min_turnover_24h": 0.0,
+            "watchlist_max_spread_bps": 0.0,
+            "min_turnover_usdt": 0.0,
+            "min_vol_pct": 0.0,
+            "max_vol_pct": 8.0,
+        }.items():
+            raw = values.get(key)
+            if isinstance(raw, str) and raw.strip() == "":
+                values[key] = default
+        return values
+
+    @root_validator(pre=True)
     def _legacy_refresh_alias(cls, values):
         if not values.get("watchlist_refresh_minutes"):
             raw = os.getenv("WATCHLIST_REFRESH_MIN")
@@ -287,7 +300,18 @@ class RiskSettings(BaseSettings):
     @root_validator(pre=False)
     def _normalize(cls, values):
         mode = str(values.get("watchlist_mode") or "static").lower()
-        values["watchlist_mode"] = mode if mode in {"static", "topn", "dynamic"} else "static"
+        values["watchlist_mode"] = mode if mode in {"static", "topn", "dynamic", "market"} else "static"
+        values["watchlist_universe_n"] = max(1, int(values.get("watchlist_universe_n", 200)))
+        values["watchlist_batch_n"] = max(1, int(values.get("watchlist_batch_n", 20)))
+        values["watchlist_refresh_seconds"] = max(1, int(values.get("watchlist_refresh_seconds", 600)))
+        rotate_mode = str(values.get("watchlist_rotate_mode") or "roundrobin").strip().lower()
+        values["watchlist_rotate_mode"] = (
+            rotate_mode if rotate_mode in {"roundrobin", "seeded_random"} else "roundrobin"
+        )
+        values["watchlist_rotate_seed"] = int(values.get("watchlist_rotate_seed", 0) or 0)
+        values["rotation_state_file"] = str(
+            values.get("rotation_state_file") or "data/watchlist_rotation_state.json"
+        ).strip()
         values["watchlist_top_n"] = max(1, int(values.get("watchlist_top_n", 10)))
         values["watchlist_refresh_minutes"] = max(1, int(values.get("watchlist_refresh_minutes", 60)))
         values["watchlist_min_price"] = max(0.0, float(values.get("watchlist_min_price", 0.01)))
@@ -475,7 +499,7 @@ def validate_env() -> tuple[bool, list[str]]:
     if not watchlist and mode == "static":
         missing.append(
             "WATCHLIST is empty and WATCHLIST_MODE=static. "
-            "Set WATCHLIST in .env (e.g. WATCHLIST=BTCUSDT,ETHUSDT) or set WATCHLIST_MODE=topn|dynamic."
+            "Set WATCHLIST in .env (e.g. WATCHLIST=BTCUSDT,ETHUSDT) or set WATCHLIST_MODE=topn|dynamic|market."
         )
     return (len(missing) == 0, missing)
 

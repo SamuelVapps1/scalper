@@ -1,9 +1,4 @@
 {
-  "day_utc": "2026-02-23",
-  "trade_count_today": 30,
-  "daily_pnl_sim": 0.2872796738295849,
-  "consecutive_losses": 5,
-  "cooldown_until_utc": "2026-02-23T19:02:43.613031+00:00",
   "open_positions": [],
   "closed_trades": [
     {
@@ -117,6 +112,15 @@
       "close_reason": "TIMEOUT"
     }
   ],
+  "daily_pnl_sim": 0.0,
+  "consecutive_losses": 0,
+  "trades_today_count": 0,
+  "last_scan_ts": 1771875320,
+  "selected_watchlist": [],
+  "selected_watchlist_mode": "static",
+  "day_utc": "2026-03-08",
+  "trade_count_today": 1,
+  "cooldown_until_utc": "",
   "intent_fingerprints": [
     {
       "fingerprint": "ETHUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T14:15:00+00:00",
@@ -264,12 +268,28 @@
       "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
       "side": "LONG",
       "bar_ts": "2026-02-23T17:45:00+00:00"
+    },
+    {
+      "fingerprint": "BEATUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-08T03:50:00+00:00",
+      "symbol": "BEATUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-08T03:50:00+00:00"
     }
   ],
   "early_alert_keys": [],
-  "last_scan_ts": 1771875320,
   "last_block_reason": "-",
   "signal_hashes": [],
   "trade_intents": [],
-  "risk_events": []
+  "risk_events": [],
+  "daily_pnl_realized": 0.0,
+  "equity_peak": 200.28727967382957,
+  "cooldown_until_ts": 0,
+  "pause_until_ts": 0,
+  "pause_reason": "",
+  "kill_reason": "",
+  "last_trade_ts": 1772941946,
+  "last_trade_symbol_ts": {
+    "BEATUSDT": 1772941946
+  }
 }

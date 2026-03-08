@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -42,11 +42,22 @@ def _atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
 
-def generate_signals(symbol: str, candles: List[Dict[str, float]]) -> List[Dict[str, object]]:
-    if len(candles) < 210:
-        return []
+def _market_snapshot(symbol: str, candles: List[Dict[str, float]]) -> Dict[str, Any]:
+    if not candles:
+        return {"symbol": symbol, "ts": "", "bar_ts_used": ""}
+    last = candles[-1]
+    return {
+        "symbol": symbol,
+        "ts": str(last.get("timestamp_utc", "") or ""),
+        "bar_ts_used": str(last.get("timestamp_utc", "") or ""),
+        "close": float(last.get("close", 0.0) or 0.0),
+    }
 
+
+def _build_frame(candles: List[Dict[str, float]]) -> pd.DataFrame:
     df = pd.DataFrame(candles)
+    if df.empty:
+        return df
     df["ema20"] = _ema(df["close"], 20)
     df["ema50"] = _ema(df["close"], 50)
     df["ema200"] = _ema(df["close"], 200)
@@ -55,32 +66,56 @@ def generate_signals(symbol: str, candles: List[Dict[str, float]]) -> List[Dict[
 
     macd_df = _macd(df["close"])
     df = pd.concat([df, macd_df], axis=1)
+    return df
 
+
+def evaluate_symbol_intents(
+    symbol: str,
+    candles: List[Dict[str, float]],
+    signal_debug: bool = False,
+    early_min_conf: float = 0.35,
+    threshold_profile: str = "A",
+) -> Dict[str, Any]:
+    if len(candles) < 210:
+        return {
+            "final_intents": [],
+            "candidates_before": [],
+            "early_intents": [],
+            "collisions": [],
+            "rejections": [],
+            "near_miss_candidates": [],
+            "debug_why_none": {"reason": "not_enough_candles"},
+            "market_snapshot": _market_snapshot(symbol, candles),
+            "error": None,
+        }
+
+    df = _build_frame(candles)
     latest = df.iloc[-1]
     prev = df.iloc[-2]
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = str(candles[-1].get("timestamp_utc") or datetime.now(timezone.utc).isoformat())
 
-    signals: List[Dict[str, object]] = []
+    candidates: List[Dict[str, Any]] = []
+    near_miss: List[Dict[str, Any]] = []
 
-    # Setup 1: EMA trend continuation (bullish)
     if (
         latest["close"] > latest["ema20"] > latest["ema50"] > latest["ema200"]
         and 50 <= latest["rsi14"] <= 70
         and latest["macd_line"] > latest["macd_signal"]
         and latest["close"] > prev["close"]
     ):
-        signals.append(
+        candidates.append(
             {
-                "timestamp_utc": now_iso,
+                "ts": now_iso,
                 "symbol": symbol,
-                "setup": "EMA_TREND_CONTINUATION_LONG",
-                "direction": "LONG",
-                "close": float(latest["close"]),
-                "reason": "EMA20>EMA50>EMA200, RSI 50-70, MACD bullish.",
+                "strategy": "TREND_PULLBACK_EMA20",
+                "side": "LONG",
+                "confidence": 0.62,
+                "reason": "Trend continuation: EMA stack + MACD + RSI",
             }
         )
+    elif latest["close"] > latest["ema20"] > latest["ema50"]:
+        near_miss.append({"symbol": symbol, "strategy": "TREND_PULLBACK_EMA20", "reason": "weak_momentum"})
 
-    # Setup 2: ATR breakout with momentum confirmation (bullish)
     recent_range = (latest["high"] - latest["low"]) / max(latest["close"], 1e-10)
     atr_ratio = latest["atr14"] / max(latest["close"], 1e-10)
     if (
@@ -90,83 +125,117 @@ def generate_signals(symbol: str, candles: List[Dict[str, float]]) -> List[Dict[
         and recent_range > atr_ratio
         and latest["close"] > prev["high"]
     ):
-        signals.append(
+        candidates.append(
             {
-                "timestamp_utc": now_iso,
+                "ts": now_iso,
                 "symbol": symbol,
-                "setup": "ATR_BREAKOUT_MOMENTUM_LONG",
-                "direction": "LONG",
-                "close": float(latest["close"]),
-                "reason": "Breakout above prev high with ATR and momentum confirmation.",
+                "strategy": "RANGE_BREAKOUT_RETEST_GO",
+                "side": "LONG",
+                "confidence": 0.68,
+                "reason": "Breakout above previous high with momentum",
             }
         )
 
-<<<<<<< HEAD
-    compact = evaluated.get("debug_why_none", {}) or {}
-    if compact:
-        lines.append(f"debug_why_none={compact}")
+    profile_threshold = {"A": 0.45, "B": 0.55, "C": 0.65}.get(str(threshold_profile or "A").upper(), 0.45)
+    final_intents = [c for c in candidates if float(c.get("confidence", 0.0)) >= max(profile_threshold, early_min_conf)]
+    debug = {"threshold_profile": str(threshold_profile).upper(), "candidates": len(candidates)}
+    if not final_intents:
+        debug["reason"] = "below_threshold_or_no_setup"
+    if signal_debug:
+        debug["latest_close"] = float(latest["close"])
+        debug["latest_rsi"] = float(latest["rsi14"])
 
-    if candles_5m:
-        lines.append("")
-        lines.append(f"Last 12 bars (5m), candles={len(candles_5m)}:")
-        start_5 = max(0, len(candles_5m) - 12)
-        for i in range(start_5, len(candles_5m)):
-            c = candles_5m[i]
-            marker = " <- EARLY[5m](-1)" if i == len(candles_5m) - 1 else ""
-            lines.append(
-                f"- {_candle_ts_utc(c)}{marker} "
-                f"O={_fmt_num(float(c.get('open', 0.0)))} "
-                f"H={_fmt_num(float(c.get('high', 0.0)))} "
-                f"L={_fmt_num(float(c.get('low', 0.0)))} "
-                f"C={_fmt_num(float(c.get('close', 0.0)))}"
-            )
+    return {
+        "final_intents": final_intents,
+        "candidates_before": candidates,
+        "early_intents": [],
+        "collisions": [],
+        "rejections": [],
+        "near_miss_candidates": near_miss,
+        "debug_why_none": debug,
+        "market_snapshot": _market_snapshot(symbol, candles),
+        "error": None,
+    }
+
+
+def evaluate_early_intents_from_5m(
+    symbol: str,
+    candles_5m: List[Dict[str, float]],
+    context_15m: Optional[Dict[str, Any]] = None,
+    early_min_conf: float = 0.35,
+    require_15m_context: bool = True,
+) -> List[Dict[str, Any]]:
+    if len(candles_5m) < 30:
+        return []
+    if require_15m_context and not (context_15m or {}).get("candidates_before"):
+        return []
+
+    df = _build_frame(candles_5m[-120:])
+    if len(df) < 25:
+        return []
+    latest = df.iloc[-1]
+    prev = df.iloc[-2]
+    side = None
+    conf = 0.0
+    if latest["close"] > latest["ema20"] and latest["macd_hist"] > 0 and latest["close"] > prev["high"]:
+        side = "LONG"
+        conf = 0.42
+    elif latest["close"] < latest["ema20"] and latest["macd_hist"] < 0 and latest["close"] < prev["low"]:
+        side = "SHORT"
+        conf = 0.42
+    if side is None or conf < early_min_conf:
+        return []
+
+    ts_5m = str(candles_5m[-1].get("timestamp_utc", datetime.now(timezone.utc).isoformat()) or "")
+    bar_ts_15m = str(((context_15m or {}).get("market_snapshot") or {}).get("bar_ts_used", "") or "")
+    return [
+        {
+            "symbol": symbol,
+            "side": side,
+            "strategy": "TREND_PULLBACK_EMA20",
+            "confidence": conf,
+            "ts": ts_5m,
+            "bar_ts_5m": ts_5m,
+            "bar_ts_15m": bar_ts_15m,
+        }
+    ]
+
+
+def build_reconcile_report(
+    symbol: str,
+    candles: List[Dict[str, float]],
+    candles_5m: Optional[List[Dict[str, float]]] = None,
+    threshold_profile: str = "A",
+) -> str:
+    evaluated = evaluate_symbol_intents(
+        symbol=symbol,
+        candles=candles,
+        signal_debug=True,
+        threshold_profile=threshold_profile,
+    )
+    lines = [
+        f"RECON symbol={symbol}",
+        f"candles_15m={len(candles)} candles_5m={len(candles_5m or [])}",
+        f"threshold_profile={str(threshold_profile).upper()}",
+        f"candidates={len(evaluated.get('candidates_before', []) or [])}",
+        f"final_intents={len(evaluated.get('final_intents', []) or [])}",
+        f"debug={evaluated.get('debug_why_none', {})}",
+    ]
     return "\n".join(lines)
 
 
-def evaluate_symbol_intents_with_plugins(
-    symbol: str,
-    *,
-    candles_15m: List[Dict[str, float]],
-    candles_5m: Optional[List[Dict[str, float]]],
-    mtf_snapshot: Dict[int, Dict[str, Any]],
-    bias_info: Dict[str, Any],
-    signal_debug: bool = False,
-    timeframe: str = "15",
-    bar_ts_used: str = "",
-) -> Dict[str, object]:
-    """
-    Thin compatibility wrapper for plugin architecture.
-    Returns legacy evaluate_* dict shape for existing consumers.
-    """
-    from scalper.settings import get_settings
-    from scalper.strategies import (
-        evaluate_enabled_first,
-        load_enabled_strategies,
-        strategy_result_to_evaluated,
-    )
-
-    settings = get_settings()
-    strategies = load_enabled_strategies(settings)
-    ctx: Dict[str, Any] = {
-        "candles_15m": candles_15m or [],
-        "candles_5m": candles_5m or [],
-        "mtf_snapshot": mtf_snapshot or {},
-        "bias_info": bias_info or {},
-        "bar_ts_used": str(bar_ts_used or ""),
-        "signal_debug": bool(signal_debug),
-        "timeframe": str(timeframe or "15"),
-        "v3_params": {
-            "DONCHIAN_N_15M": settings.strategy_v3.donchian_n_15m,
-            "BODY_ATR_15M": settings.strategy_v3.body_atr_15m,
-            "TREND_SEP_ATR_1H": settings.strategy_v3.trend_sep_atr_1h,
-            "USE_5M_CONFIRM": settings.strategy_v3.use_5m_confirm,
-        },
-        "i15": max(0, len(candles_15m or []) - 1),
-        "sl_atr_mult": float(_get_config_float("PULLBACK_SL_ATR_MULT", 0.60)),
-        "tp_r": float(_get_config_float("PAPER_TP_ATR", 1.5)),
-    }
-    result = evaluate_enabled_first(symbol=symbol, context=ctx, strategies=strategies)
-    return strategy_result_to_evaluated(result, context=ctx)
-=======
-    return signals
->>>>>>> 687e22dccb4ca354fd3fb211e4c4c4cb9c7b2313
+def generate_signals(symbol: str, candles: List[Dict[str, float]]) -> List[Dict[str, object]]:
+    evaluated = evaluate_symbol_intents(symbol=symbol, candles=candles)
+    out: List[Dict[str, object]] = []
+    for intent in evaluated.get("final_intents", []) or []:
+        out.append(
+            {
+                "timestamp_utc": str(intent.get("ts", datetime.now(timezone.utc).isoformat())),
+                "symbol": symbol,
+                "setup": str(intent.get("strategy", "")),
+                "direction": str(intent.get("side", "")),
+                "close": float((evaluated.get("market_snapshot") or {}).get("close", 0.0)),
+                "reason": str(intent.get("reason", "")),
+            }
+        )
+    return out

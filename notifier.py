@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
+from typing import Literal
 
 _TELEGRAM_CONFIG_WARNED: bool = False
 _LAST_TELEGRAM_SENT_AT: float = time.time()
+
+
+KindCategory = Literal["signals", "events"]
 
 
 def warn_missing_telegram_once() -> None:
@@ -21,6 +26,32 @@ def get_last_telegram_sent_at() -> float:
     return float(_LAST_TELEGRAM_SENT_AT)
 
 
+def _classify_kind(kind: str, text: str) -> KindCategory:
+    k = str(kind or "").strip().lower()
+    t = str(text or "").strip().upper()
+    if k in {"heartbeat", "scan_summary", "stall", "test", "event", "open", "close", "block"}:
+        return "events"
+    if k in {"signal", "intent_signal"}:
+        return "signals"
+    if k == "intent":
+        if t.startswith("ALLOW[") or t.startswith("EARLY[") or "CONFIRMED" in t:
+            return "signals"
+        return "events"
+    return "events"
+
+
+def should_send(policy: str, kind: str, text: str) -> bool:
+    normalized = str(policy or "events").strip().lower()
+    if normalized == "off":
+        return False
+    category = _classify_kind(kind, text)
+    if normalized == "both":
+        return True
+    if normalized not in {"signals", "events"}:
+        normalized = "events"
+    return category == normalized
+
+
 def send_telegram_with_logging(
     *,
     kind: str,
@@ -31,9 +62,11 @@ def send_telegram_with_logging(
 ) -> bool:
     from telegram_notify import send_telegram
 
-    import config as _cfg
+    policy = str(os.getenv("TELEGRAM_POLICY", "events") or "events").lower()
+    if not should_send(policy=policy, kind=kind, text=text):
+        logging.info("TELEGRAM_SKIP policy=%s kind=%s", policy, kind)
+        return False
 
-    policy = str(getattr(_cfg, "TELEGRAM_POLICY", "events") or "events")
     token_set = bool(str(token or "").strip())
     chat_value = str(chat_id or "")
     chat_set = bool(chat_value.strip())
@@ -45,7 +78,7 @@ def send_telegram_with_logging(
         len(chat_value),
     )
     try:
-        send_telegram(token=token, chat_id=chat_id, text=text, kind=kind, policy=policy)
+        send_telegram(token=token, chat_id=chat_id, text=text)
         logging.info("TELEGRAM_SEND_OK")
         global _LAST_TELEGRAM_SENT_AT
         _LAST_TELEGRAM_SENT_AT = time.time()

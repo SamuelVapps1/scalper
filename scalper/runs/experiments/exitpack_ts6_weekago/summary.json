@@ -1,0 +1,62 @@
+{
+  "tag": "exitpack_ts6_weekago",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "days": 45,
+  "variant": {
+    "PF": 2.5026,
+    "maxDD": 12.15,
+    "winrate": 75.80246913580247,
+    "winrate_roundtrip": 65.73705179282868,
+    "winrate_fill": 75.80246913580247,
+    "trades_per_day": 9.0,
+    "entries_per_day": 5.58,
+    "avgR": 0.2848,
+    "trades": 405,
+    "entries_count": 251,
+    "closes_count": 251,
+    "partial_closes_count": 154,
+    "total_fills_count": 405,
+    "run_id": "14b1f1c4c41a"
+  },
+  "variant_params": {
+    "BE_AT_R": 1.0,
+    "PARTIAL_TP_AT_R": 1.0,
+    "PARTIAL_TP_PCT": 0.5,
+    "TIME_STOP_BARS": 6,
+    "TIME_STOP_MIN_R": 0.3
+  },
+  "baseline": {
+    "PF": 1.9313,
+    "maxDD": 38.7,
+    "winrate": 66.13545816733067,
+    "winrate_roundtrip": 66.13545816733067,
+    "winrate_fill": 66.13545816733067,
+    "trades_per_day": 5.58,
+    "entries_per_day": 5.58,
+    "avgR": 0.4709,
+    "trades": 251,
+    "entries_count": 251,
+    "closes_count": 251,
+    "partial_closes_count": 0,
+    "total_fills_count": 251,
+    "run_id": "9fc23c182097"
+  },
+  "diff": {
+    "PF": 0.5713,
+    "maxDD": -26.55,
+    "winrate": 9.67,
+    "winrate_roundtrip": -0.4,
+    "winrate_fill": 9.67,
+    "trades_per_day": 3.42,
+    "entries_per_day": 0.0,
+    "avgR": -0.1861,
+    "trades": 154,
+    "entries_count": 0,
+    "closes_count": 0,
+    "partial_closes_count": 154,
+    "total_fills_count": 154
+  }
+}
