@@ -92,7 +92,7 @@ class WatchlistManager:
         refresh_seconds = max(1, int(getattr(self.config, "WATCHLIST_REFRESH_SECONDS", 600) or 600))
         universe: List[str] = list(state.get("universe", []) or [])
         source = "market"
-        if (not universe) or int(state.get("universe_ts", 0) or 0) + refresh_seconds <= now:
+        if (not universe) or (((int(state.get("universe_ts", 0) or 0) + refresh_seconds) <= now)):
             try:
                 universe = self._fetch_market_universe()
                 state["universe"] = universe

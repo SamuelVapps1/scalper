@@ -37,9 +37,7 @@ SCAN_CYCLE_TIMEOUT_SECONDS = _s.risk.scan_cycle_timeout_seconds
 WATCHLIST_TOP_N = _s.risk.watchlist_top_n
 WATCHLIST_REFRESH_MINUTES = _s.risk.watchlist_refresh_minutes
 WATCHLIST_REFRESH_MIN = _s.risk.watchlist_refresh_min
-WATCHLIST_REFRESH_SECONDS = _s.risk.watchlist_refresh_seconds
-WATCHLIST_UNIVERSE_N = _s.risk.watchlist_universe_n
-WATCHLIST_BATCH_N = _s.risk.watchlist_batch_n
+WATCHLIST_REFRESH_SECONDS = getattr(_s.risk, "watchlist_refresh_seconds", int(getattr(_s.risk, "watchlist_refresh_min", 15) * 60))WATCHLIST_BATCH_N = _s.risk.watchlist_batch_n
 WATCHLIST_ROTATE_MODE = _s.risk.watchlist_rotate_mode
 WATCHLIST_ROTATE_SEED = _s.risk.watchlist_rotate_seed
 ROTATION_STATE_FILE = _s.risk.rotation_state_file

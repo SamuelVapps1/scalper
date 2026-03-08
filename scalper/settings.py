@@ -199,10 +199,10 @@ class RiskSettings(BaseSettings):
     watchlist_mode: str = Field("static", env="WATCHLIST_MODE")
     watchlist_universe_n: int = Field(200, env="WATCHLIST_UNIVERSE_N")
     watchlist_batch_n: int = Field(20, env="WATCHLIST_BATCH_N")
-    watchlist_refresh_seconds: int = Field(600, env="WATCHLIST_REFRESH_SECONDS")
+    watchlist_refresh_seconds: int = Field(900, env="WATCHLIST_REFRESH_SECONDS")
     watchlist_rotate_mode: str = Field("roundrobin", env="WATCHLIST_ROTATE_MODE")
     watchlist_rotate_seed: int = Field(0, env="WATCHLIST_ROTATE_SEED")
-    rotation_state_file: str = Field("data/watchlist_rotation_state.json", env="ROTATION_STATE_FILE")
+    rotation_state_file: str = Field("state.json", env="ROTATION_STATE_FILE")
     watchlist_top_n: int = Field(10, env="WATCHLIST_TOP_N")
     watchlist_refresh_minutes: int = Field(60, env="WATCHLIST_REFRESH_MINUTES")
     watchlist_min_price: float = Field(0.01, env="WATCHLIST_MIN_PRICE")
@@ -287,13 +287,35 @@ class RiskSettings(BaseSettings):
 
     @root_validator(pre=True)
     def _legacy_refresh_alias(cls, values):
-        if not values.get("watchlist_refresh_minutes"):
-            raw = os.getenv("WATCHLIST_REFRESH_MIN")
-            if raw is not None:
-                values["watchlist_refresh_minutes"] = raw
-        if not values.get("max_open_positions"):
+        raw_min = os.getenv("WATCHLIST_REFRESH_MIN")
+        if raw_min is not None and raw_min.strip() != "":
+            try:
+                values["watchlist_refresh_minutes"] = int(raw_min)
+            except (TypeError, ValueError):
+                pass
+        if "WATCHLIST_REFRESH_SECONDS" not in os.environ and "WATCHLIST_REFRESH_MINUTES" in os.environ:
+            try:
+                values["watchlist_refresh_seconds"] = int(os.getenv("WATCHLIST_REFRESH_MINUTES", "15")) * 60
+            except (TypeError, ValueError):
+                pass
+        if "WATCHLIST_MIN_TURNOVER_24H" not in os.environ and os.getenv("MIN_24H_TURNOVER") is not None:
+            try:
+                values["watchlist_min_turnover_24h"] = float(os.getenv("MIN_24H_TURNOVER", "0"))
+            except (TypeError, ValueError):
+                pass
+        if "WATCHLIST_UNIVERSE_N" not in os.environ and os.getenv("UNIVERSE_SIZE") is not None:
+            try:
+                values["watchlist_universe_n"] = int(os.getenv("UNIVERSE_SIZE", "200"))
+            except (TypeError, ValueError):
+                pass
+        if "WATCHLIST_BATCH_N" not in os.environ and os.getenv("BATCH_SIZE") is not None:
+            try:
+                values["watchlist_batch_n"] = int(os.getenv("BATCH_SIZE", "20"))
+            except (TypeError, ValueError):
+                pass
+        if not values.get("max_open_positions") and "MAX_OPEN_POSITIONS" not in os.environ:
             legacy = os.getenv("RISK_ONE_POSITION_ONLY")
-            if legacy is not None and "MAX_OPEN_POSITIONS" not in os.environ:
+            if legacy is not None:
                 values["max_open_positions"] = 1 if str(legacy).strip().lower() in {"1", "true", "yes", "on"} else 0
         return values
 
@@ -310,7 +332,7 @@ class RiskSettings(BaseSettings):
         )
         values["watchlist_rotate_seed"] = int(values.get("watchlist_rotate_seed", 0) or 0)
         values["rotation_state_file"] = str(
-            values.get("rotation_state_file") or "data/watchlist_rotation_state.json"
+            values.get("rotation_state_file") or "state.json"
         ).strip()
         values["watchlist_top_n"] = max(1, int(values.get("watchlist_top_n", 10)))
         values["watchlist_refresh_minutes"] = max(1, int(values.get("watchlist_refresh_minutes", 60)))
