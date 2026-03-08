@@ -119,7 +119,7 @@
   "selected_watchlist": [],
   "selected_watchlist_mode": "static",
   "day_utc": "2026-03-08",
-  "trade_count_today": 3,
+  "trade_count_today": 4,
   "cooldown_until_utc": "",
   "intent_fingerprints": [
     {
@@ -289,6 +289,27 @@
       "strategy": "RANGE_BREAKOUT_RETEST_GO",
       "side": "LONG",
       "bar_ts": "2026-03-08T09:25:00+00:00"
+    },
+    {
+      "fingerprint": "BTCUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-08T09:50:00+00:00",
+      "symbol": "BTCUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-08T09:50:00+00:00"
+    },
+    {
+      "fingerprint": "SUIUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-08T09:50:00+00:00",
+      "symbol": "SUIUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-08T09:50:00+00:00"
+    },
+    {
+      "fingerprint": "NEARUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-08T09:50:00+00:00",
+      "symbol": "NEARUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-08T09:50:00+00:00"
     }
   ],
   "early_alert_keys": [],
@@ -302,10 +323,10 @@
   "pause_until_ts": 0,
   "pause_reason": "",
   "kill_reason": "",
-  "last_trade_ts": 1772962151,
+  "last_trade_ts": 1772963439,
   "last_trade_symbol_ts": {
     "BEATUSDT": 1772941946,
     "XRPUSDT": 1772961366,
-    "BTCUSDT": 1772962151
+    "BTCUSDT": 1772963439
   }
 }

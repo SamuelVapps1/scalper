@@ -1,26 +1,10 @@
 """
 Compatibility config constants backed by `scalper.settings`.
+Thin re-export layer: normal imports only, no dynamic loading.
 """
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
-
-# Load scalper.settings from the package next to this file so it works from any cwd/sys.path
-_config_dir = Path(__file__).resolve().parent
-_settings_path = _config_dir / "scalper" / "settings.py"
-if _settings_path.exists():
-    _spec = importlib.util.spec_from_file_location("scalper.settings", _settings_path)
-    _settings_mod = importlib.util.module_from_spec(_spec)
-    sys.modules["scalper.settings"] = _settings_mod
-    _spec.loader.exec_module(_settings_mod)
-    _ENV_BOOTSTRAP_STATE = _settings_mod._ENV_BOOTSTRAP_STATE
-    debug_env = _settings_mod.debug_env
-    debug_risk_config = _settings_mod.debug_risk_config
-    get_settings = _settings_mod.get_settings
-else:
-    from scalper.settings import _ENV_BOOTSTRAP_STATE, debug_env, debug_risk_config, get_settings
+from scalper.settings import _ENV_BOOTSTRAP_STATE, debug_env, debug_risk_config, get_settings
 
 _s = get_settings()
 
