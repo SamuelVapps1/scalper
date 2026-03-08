@@ -445,8 +445,8 @@ def run_test_telegram_formats(config_module) -> int:
 
 
 def run_reconcile(config_module, symbol: str) -> int:
-    from bybit import fetch_klines
-    from signals import build_reconcile_report
+    from scalper.bybit import fetch_klines
+    from scalper.signals import build_reconcile_report
 
     clean_symbol = str(symbol or "").strip().upper()
     if not clean_symbol:
@@ -484,7 +484,7 @@ def resolve_watchlist(config_module, symbols_override: Optional[list[str]] = Non
     """Resolve watchlist via watchlist.get_watchlist (static/dynamic/topn)."""
     if symbols_override:
         return (list(dict.fromkeys(symbols_override)), "cli")
-    from watchlist import get_watchlist
+    from scalper.watchlist import get_watchlist
 
     return get_watchlist(config_module, bybit_client=None, logger=logging.getLogger(__name__))
 
@@ -515,14 +515,14 @@ def run_scan_cycle(
     telegram_max_chars_verbose: int,
     paper_mode: bool = False,
 ) -> Dict[str, Any]:
-    from bybit import fetch_klines
-    from paper import PaperPosition, update_and_maybe_close
-    from paper_engine import try_open_position
+    from scalper.bybit import fetch_klines
+    from scalper.paper import PaperPosition, update_and_maybe_close
+    from scalper.paper_engine import try_open_position
     from scalper.models import TradeRecord
     from scalper.risk_engine_core import RiskEngine
     from scalper.paper_broker import PaperBroker
     from scalper.settings import get_settings
-    from signals import (
+    from scalper.signals import (
         evaluate_early_intents_from_5m,
         evaluate_symbol_intents,
     )
@@ -543,7 +543,7 @@ def run_scan_cycle(
         insert_paper_trade,
         delete_paper_position,
     )
-    from telegram_format import (
+    from scalper.telegram_format import (
         format_early_alert,
         format_intent_allow,
         format_intent_block,
@@ -1554,11 +1554,12 @@ def _emit_scan_summary_and_heartbeat(
     run_mode: str = "loop",
 ) -> None:
     """
-    Send scan summary or heartbeat per TELEGRAM_POLICY.
-    - events: no scan_summary, heartbeat when idle
-    - periodic: scan_summary at most once per SCAN_SUMMARY_MINUTES (only when NOTIFY_SCAN_SUMMARY and not DISABLE_SCAN_SUMMARY)
-    - off: no scan_summary, no heartbeat
-    Scan summary requires ALL: TELEGRAM_POLICY==periodic, NOTIFY_SCAN_SUMMARY, DISABLE_SCAN_SUMMARY==False.
+    Send scan summary / heartbeat as event notifications.
+    TELEGRAM_POLICY:
+      - off: disable all telegram
+      - signals: signal alerts only (no summary/heartbeat)
+      - events: event alerts only (summary/heartbeat/open/close/block)
+      - both: both signals and events
     Heartbeat: not sent on startup (requires at least 2 completed scans), includes run_mode, watchlist count, last_scan_ts.
     """
     from scalper.notifier import get_last_telegram_sent_at
@@ -1568,7 +1569,7 @@ def _emit_scan_summary_and_heartbeat(
     if not telegram_token or not telegram_chat_id:
         return
     policy = str(getattr(config_module, "TELEGRAM_POLICY", "events") or "events").strip().lower()
-    if policy not in {"events", "periodic", "off"}:
+    if policy not in {"off", "signals", "events", "both"}:
         policy = "events"
     notify_summary = bool(getattr(config_module, "NOTIFY_SCAN_SUMMARY", False))
     disable_summary = bool(getattr(config_module, "DISABLE_SCAN_SUMMARY", True))
@@ -1580,12 +1581,9 @@ def _emit_scan_summary_and_heartbeat(
     if policy == "off":
         return
 
-    may_send_scan_summary = (
-        policy == "periodic"
-        and notify_summary
-        and not disable_summary
-    )
-    if policy == "periodic" and not may_send_scan_summary:
+    events_enabled = policy in {"events", "both"}
+    may_send_scan_summary = events_enabled and notify_summary and not disable_summary
+    if events_enabled and not may_send_scan_summary:
         logging.info(
             "SCAN_SUMMARY_SKIP policy=%s notify=%s disabled=%s",
             policy,
@@ -1603,17 +1601,14 @@ def _emit_scan_summary_and_heartbeat(
                 text=summary,
             )
             _LAST_SCAN_SUMMARY_AT = now
-        if policy == "periodic":
-            return
-
     threshold_sec = heartbeat_min * 60
     may_send_heartbeat = (
-        policy in ("events", "periodic")
+        events_enabled
         and heartbeat_min > 0
         and idle_sec >= threshold_sec
         and _SCANS_COMPLETED >= 2
     )
-    if not may_send_heartbeat and policy in ("events", "periodic") and heartbeat_min > 0:
+    if not may_send_heartbeat and events_enabled and heartbeat_min > 0:
         logging.info(
             "HEARTBEAT_SKIP elapsed=%.0f threshold=%.0f scans=%d",
             idle_sec,
@@ -1662,9 +1657,9 @@ def emit_dashboard(
     max_open_positions: int,
     run_mode: str = "loop",
 ) -> None:
-    from dashboard import build_dashboard_report
+    from scalper.dashboard import build_dashboard_report
     from scalper.storage import load_paper_state
-    from telegram_format import format_dashboard_compact
+    from scalper.telegram_format import format_dashboard_compact
 
     ctx = dict(run_context)
     ctx["top_n"] = config_module.DASHBOARD_TOP_N
