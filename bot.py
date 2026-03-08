@@ -1,3 +1,15 @@
+<<<<<<< HEAD
+from pathlib import Path
+
+from scalper.scanner import Scanner, parse_args, setup_logging
+from scalper.settings import get_settings, validate_env
+
+
+def bootstrap_runtime_dirs() -> None:
+    """Create ./runs and ./data if missing. Works on Windows and Linux."""
+    for name in ("runs", "data"):
+        Path.cwd().joinpath(name).mkdir(parents=True, exist_ok=True)
+=======
 import argparse
 import logging
 import time
@@ -114,15 +126,32 @@ def run_scan_cycle(
                     logging.info("Cooldown active for %s | %s.", symbol, setup_name)
         except Exception as exc:
             logging.exception("Scan failed for %s: %s", symbol, exc)
+>>>>>>> 687e22dccb4ca354fd3fb211e4c4c4cb9c7b2313
 
 
 def main() -> int:
     args = parse_args()
     setup_logging(args.log_level)
+<<<<<<< HEAD
+    bootstrap_runtime_dirs()
+
+    if getattr(args, "validate_env", False):
+        ok, missing = validate_env()
+        if ok:
+            print("OK")
+            return 0
+        for key in missing:
+            print(key)
+        return 1
+
+    get_settings()
+    import config
+=======
 
     if args.cooldown_minutes <= 0:
         logging.error("--cooldown-minutes must be a positive integer.")
         return 2
+>>>>>>> 687e22dccb4ca354fd3fb211e4c4c4cb9c7b2313
 
     from config import (
         INTERVAL,

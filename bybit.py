@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Dict, List
 
 import requests
@@ -33,9 +34,12 @@ def fetch_klines(symbol: str, interval: str, limit: int) -> List[Dict[str, float
 
     candles: List[Dict[str, float]] = []
     for item in ordered:
+        ts_ms = int(item[0])
+        ts_utc = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).isoformat()
         candles.append(
             {
-                "timestamp": int(item[0]),
+                "timestamp": ts_ms,
+                "timestamp_utc": ts_utc,
                 "open": float(item[1]),
                 "high": float(item[2]),
                 "low": float(item[3]),

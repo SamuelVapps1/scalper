@@ -1,0 +1,67 @@
+{
+  "run_id": "f9dd01e49bf2",
+  "args": {
+    "symbols": [
+      "BTCUSDT"
+    ],
+    "train_days": 90,
+    "test_days": 30,
+    "step_days": 30,
+    "start_days_ago": 120
+  },
+  "windows": [
+    {
+      "window": 1,
+      "test_end_days_ago": 0,
+      "test_start_days_ago": 30,
+      "run_id": "f8e8fa1e37be",
+      "trades_total": 7,
+      "wins": 1,
+      "losses": 6,
+      "winrate": 0.14285714285714285,
+      "expectancy_R": -0.4791,
+      "profit_factor": 0.1551,
+      "avg_win_R": 1.2315,
+      "avg_loss_R": -0.7642,
+      "max_dd_usdt": 5.99,
+      "skip_reasons": {
+        "bias_none": 0,
+        "atr_filter_fail": 0,
+        "range_too_small": 0,
+        "breakout_not_triggered": 5,
+        "retest_not_filled": 0,
+        "bos_not_confirmed": 0,
+        "ema20_confirm_fail": 0,
+        "ema200_align_fail": 173,
+        "ema20_ema50_fail": 287,
+        "trend_weak": 298,
+        "momo_confirm_fail": 25,
+        "pullback_not_triggered": 122,
+        "no_active_setup": 0,
+        "score_below_min": 0,
+        "max_abs_dist_4h": 0,
+        "max_abs_dist_4h_hard": 0,
+        "rate_limited": 0
+      },
+      "exit_reason_counts": {
+        "TIMEOUT": 3,
+        "TP": 1,
+        "SL": 3
+      },
+      "by_setup": {
+        "TREND_PULLBACK_EMA20": {
+          "expectancy_R": -0.4791,
+          "winrate": 0.1429,
+          "profit_factor": 0.1551,
+          "trades_total": 7,
+          "wins": 1,
+          "losses": 6,
+          "avg_win_R": 1.2315,
+          "avg_loss_R": -0.7642,
+          "max_dd_usdt": 5.99
+        }
+      },
+      "top_skip_reason": "trend_weak:298"
+    }
+  ]
+}
