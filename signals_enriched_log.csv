@@ -5,3 +5,4 @@ timestamp_utc,symbol,setup,direction,close,reason,confidence,entry,sl,tp
 ,BTCUSDT,TREND_PULLBACK_EMA20,LONG,,Trend continuation: EMA stack + MACD + RSI,0.62,,,
 ,SUIUSDT,TREND_PULLBACK_EMA20,LONG,,Trend continuation: EMA stack + MACD + RSI,0.62,,,
 ,NEARUSDT,TREND_PULLBACK_EMA20,LONG,,Trend continuation: EMA stack + MACD + RSI,0.62,,,
+,SIGNUSDT,TREND_PULLBACK_EMA20,LONG,,Trend continuation: EMA stack + MACD + RSI,0.62,,,

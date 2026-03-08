@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
-from typing import List
+from typing import Any, List, Optional
 
 try:
     from pydantic.v1 import BaseModel, BaseSettings, Field, root_validator
@@ -17,6 +18,101 @@ except Exception:  # pragma: no cover
     dotenv_values = None
     find_dotenv = None
     load_dotenv = None
+
+
+# ----- Env string sanitization (before Pydantic parses) -----
+
+def _strip_inline_comment(value: Any) -> str:
+    """Remove inline comment after # or ; if not inside quotes. Trim whitespace."""
+    if value is None:
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    # Simple: strip from first unquoted # or ;
+    out = []
+    i = 0
+    quote = None
+    while i < len(s):
+        c = s[i]
+        if quote:
+            if c == quote and (i + 1 >= len(s) or s[i + 1] != quote):
+                quote = None
+            out.append(c)
+            i += 1
+            continue
+        if c in ("'", '"'):
+            quote = c
+            out.append(c)
+            i += 1
+            continue
+        if c == "#" or (c == ";" and i > 0):
+            break
+        out.append(c)
+        i += 1
+    return "".join(out).strip()
+
+
+def _normalize_empty(value: Any) -> Optional[str]:
+    """Treat '', 'none', 'null', 'None' as empty (return None). Otherwise return stripped string."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    if s.lower() in ("none", "null"):
+        return None
+    return s
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    """Coerce to int; empty/None/invalid => default."""
+    s = _normalize_empty(value)
+    if s is None:
+        return default
+    s = _strip_inline_comment(s)
+    if not s:
+        return default
+    try:
+        return int(float(s))
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    """Coerce to float; empty/None/invalid => default."""
+    s = _normalize_empty(value)
+    if s is None:
+        return default
+    s = _strip_inline_comment(s)
+    if not s:
+        return default
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    """Coerce to bool; empty/None => default; '1'/'true'/'yes'/'on' => True; else False."""
+    s = _normalize_empty(value)
+    if s is None:
+        return default
+    s = _strip_inline_comment(s).lower()
+    if not s:
+        return default
+    return s in ("1", "true", "yes", "on")
+
+
+def _coerce_csv_list(value: Any) -> List[str]:
+    """Parse CSV string to list of stripped non-empty strings. Empty => []."""
+    s = _normalize_empty(value)
+    if s is None:
+        return []
+    s = _strip_inline_comment(s)
+    if not s:
+        return []
+    return [x.strip() for x in s.split(",") if x.strip()]
 
 
 _ENV_BOOTSTRAP_STATE = {
@@ -150,6 +246,14 @@ class BybitSettings(BaseSettings):
     execution_mode: str = Field("disabled", env="EXECUTION_MODE")
     explicit_confirm_execution: bool = Field(False, env="EXPLICIT_CONFIRM_EXECUTION")
 
+    @root_validator(pre=True)
+    def _coerce_bybit_env(cls, values):
+        if values.get("request_sleep_ms") is not None and isinstance(values["request_sleep_ms"], str):
+            values["request_sleep_ms"] = _coerce_int(values["request_sleep_ms"], 250)
+        if values.get("explicit_confirm_execution") is not None and isinstance(values["explicit_confirm_execution"], str):
+            values["explicit_confirm_execution"] = _coerce_bool(values["explicit_confirm_execution"], False)
+        return values
+
     @root_validator(pre=False)
     def _normalize(cls, values):
         values["base_url"] = str(values.get("base_url") or "https://api.bybit.com").rstrip("/")
@@ -171,6 +275,20 @@ class TelegramSettings(BaseSettings):
     compact: bool = Field(True, env="TELEGRAM_COMPACT")
     early_enabled: bool = Field(False, env="TELEGRAM_EARLY_ENABLED")
     early_max_per_symbol_per_15m: int = Field(1, env="TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M")
+
+    @root_validator(pre=True)
+    def _coerce_telegram_env(cls, values):
+        if values.get("max_chars_compact") is not None and isinstance(values["max_chars_compact"], str):
+            values["max_chars_compact"] = _coerce_int(values["max_chars_compact"], 900)
+        if values.get("max_chars_verbose") is not None and isinstance(values["max_chars_verbose"], str):
+            values["max_chars_verbose"] = _coerce_int(values["max_chars_verbose"], 2500)
+        bool_defaults_telegram = {"send_blocked": False, "send_dashboard": False, "compact": True, "early_enabled": False}
+        for k, default in bool_defaults_telegram.items():
+            if values.get(k) is not None and isinstance(values[k], str):
+                values[k] = _coerce_bool(values[k], default)
+        if values.get("early_max_per_symbol_per_15m") is not None and isinstance(values["early_max_per_symbol_per_15m"], str):
+            values["early_max_per_symbol_per_15m"] = _coerce_int(values["early_max_per_symbol_per_15m"], 1)
+        return values
 
     @root_validator(pre=True)
     def _chat_fallback(cls, values):
@@ -271,52 +389,93 @@ class RiskSettings(BaseSettings):
     fail_closed_on_snapshot_missing: bool = Field(True, env="FAIL_CLOSED_ON_SNAPSHOT_MISSING")
 
     @root_validator(pre=True)
-    def _sanitize_empty_numeric_envs(cls, values):
-        for key, default in {
-            "watchlist_min_price": 0.0,
-            "watchlist_min_turnover_24h": 0.0,
-            "watchlist_max_spread_bps": 0.0,
-            "min_turnover_usdt": 0.0,
-            "min_vol_pct": 0.0,
-            "max_vol_pct": 8.0,
-        }.items():
-            raw = values.get(key)
-            if isinstance(raw, str) and raw.strip() == "":
+    def _coerce_risk_env(cls, values):
+        """Coerce raw env strings before Pydantic parses. Handles empty, inline comments, null/none."""
+        int_defaults = {
+            "lookback": 300, "scan_seconds": 60, "scan_cycle_timeout_seconds": 0,
+            "watchlist_universe_n": 200, "watchlist_batch_n": 20, "watchlist_refresh_seconds": 900,
+            "watchlist_rotate_seed": 0, "watchlist_top_n": 10, "watchlist_refresh_minutes": 60,
+            "watchlist_pool_n": 30, "max_concurrent_positions": 1, "max_open_positions": 1,
+            "risk_max_trades_per_day": 10, "risk_max_consecutive_losses": 3, "risk_cooldown_minutes": 30,
+            "heartbeat_minutes": 15, "early_lookback_5m": 180, "early_max_alerts_per_symbol_per_15m": 1,
+            "tf_bias": 240, "tf_setup": 60, "tf_trigger": 15, "tf_timing": 5,
+            "lookback_4h": 250, "lookback_1h": 250, "lookback_15m": 400, "lookback_5m": 400,
+            "paper_timeout_bars": 12, "max_trades_day": 12,
+            "min_seconds_between_trades": 180, "min_seconds_between_symbol_trades": 900,
+            "cluster_btc_eth_limit": 1,
+        }
+        float_defaults = {
+            "watchlist_min_price": 0.01, "watchlist_min_turnover_24h": 100000000.0,
+            "watchlist_max_spread_bps": 0.0, "min_turnover_usdt": 100000000.0,
+            "min_vol_pct": 0.8, "max_vol_pct": 8.0,
+            "risk_max_daily_loss_sim": 100.0, "early_min_conf": 0.35,
+            "paper_position_usdt": 20.0, "paper_fees_bps": 6.0, "paper_equity_usdt": 200.0,
+            "paper_sl_atr": 1.0, "paper_tp_atr": 1.5, "paper_start_equity_usdt": 1000.0,
+            "paper_slippage_pct": 0.01, "paper_fee_pct": 0.055,
+            "spread_bps": 2.0, "slippage_bps": 3.0, "risk_per_trade_pct": 0.15,
+            "daily_loss_limit_pct": 1.0, "max_dd_pct": 12.0, "max_symbol_notional_pct": 30.0,
+        }
+        str_defaults = {
+            "interval": "15", "watchlist_mode": "static", "watchlist_raw": "",
+            "watchlist_rotate_mode": "roundrobin", "rotation_state_file": "state.json",
+            "watchlist_exclude_prefixes_raw": "1000,10000", "watchlist_exclude_symbols_raw": "",
+            "watchlist_exclude_regex": "", "watchlist_rank": "turnover", "position_mode": "global",
+            "threshold_profile": "A", "early_tf": "5",
+        }
+        bool_defaults = {
+            "risk_notify_blocked_telegram": False, "risk_kill_switch": False, "kill_switch": False,
+            "risk_one_position_per_symbol": True, "signal_debug": False, "kpi_debug": False,
+            "notify_blocked": False, "always_notify_intents": False, "notify_scan_summary": False,
+            "disable_scan_summary": True, "early_enabled": True, "early_require_15m_context": True,
+            "fail_closed_on_snapshot_missing": True,
+        }
+        for key, default in int_defaults.items():
+            if key in values and (values[key] is None or (isinstance(values[key], str) and not values[key].strip())):
                 values[key] = default
+            elif key in values and isinstance(values[key], str):
+                values[key] = _coerce_int(values[key], default)
+        for key, default in float_defaults.items():
+            if key in values and (values[key] is None or (isinstance(values[key], str) and not values[key].strip())):
+                values[key] = default
+            elif key in values and isinstance(values[key], str):
+                values[key] = _coerce_float(values[key], default)
+        for key, default in str_defaults.items():
+            if key in values and values[key] is not None and isinstance(values[key], str):
+                s = _strip_inline_comment(values[key])
+                if _normalize_empty(s) is None:
+                    values[key] = default
+                else:
+                    values[key] = s.strip() if s else default
+        for key, default in bool_defaults.items():
+            if key in values and (values[key] is None or (isinstance(values[key], str) and not str(values[key]).strip())):
+                values[key] = default
+            elif key in values and isinstance(values[key], str):
+                values[key] = _coerce_bool(values[key], default)
         return values
 
     @root_validator(pre=True)
     def _legacy_refresh_alias(cls, values):
-        raw_min = os.getenv("WATCHLIST_REFRESH_MIN")
-        if raw_min is not None and raw_min.strip() != "":
-            try:
-                values["watchlist_refresh_minutes"] = int(raw_min)
-            except (TypeError, ValueError):
-                pass
-        if "WATCHLIST_REFRESH_SECONDS" not in os.environ and "WATCHLIST_REFRESH_MINUTES" in os.environ:
-            try:
-                values["watchlist_refresh_seconds"] = int(os.getenv("WATCHLIST_REFRESH_MINUTES", "15")) * 60
-            except (TypeError, ValueError):
-                pass
-        if "WATCHLIST_MIN_TURNOVER_24H" not in os.environ and os.getenv("MIN_24H_TURNOVER") is not None:
-            try:
-                values["watchlist_min_turnover_24h"] = float(os.getenv("MIN_24H_TURNOVER", "0"))
-            except (TypeError, ValueError):
-                pass
-        if "WATCHLIST_UNIVERSE_N" not in os.environ and os.getenv("UNIVERSE_SIZE") is not None:
-            try:
-                values["watchlist_universe_n"] = int(os.getenv("UNIVERSE_SIZE", "200"))
-            except (TypeError, ValueError):
-                pass
-        if "WATCHLIST_BATCH_N" not in os.environ and os.getenv("BATCH_SIZE") is not None:
-            try:
-                values["watchlist_batch_n"] = int(os.getenv("BATCH_SIZE", "20"))
-            except (TypeError, ValueError):
-                pass
+        # WATCHLIST_RAW fallback when WATCHLIST is empty
+        raw_watch = values.get("watchlist_raw") or ""
+        if (not raw_watch or not str(raw_watch).strip()) and os.getenv("WATCHLIST_RAW"):
+            values["watchlist_raw"] = _strip_inline_comment(os.getenv("WATCHLIST_RAW", "") or "")
+        # Legacy env aliases (only if canonical env not set)
+        if "WATCHLIST_REFRESH_SECONDS" not in os.environ or not str(os.getenv("WATCHLIST_REFRESH_SECONDS", "")).strip():
+            raw_min = os.getenv("WATCHLIST_REFRESH_MIN")
+            if raw_min is not None and str(raw_min).strip():
+                values["watchlist_refresh_minutes"] = _coerce_int(raw_min, 60)
+            if "WATCHLIST_REFRESH_MINUTES" in os.environ:
+                values["watchlist_refresh_seconds"] = _coerce_int(os.getenv("WATCHLIST_REFRESH_MINUTES", "15"), 15) * 60
+        if ("WATCHLIST_MIN_TURNOVER_24H" not in os.environ or not str(os.getenv("WATCHLIST_MIN_TURNOVER_24H", "")).strip()) and os.getenv("MIN_24H_TURNOVER") is not None:
+            values["watchlist_min_turnover_24h"] = _coerce_float(os.getenv("MIN_24H_TURNOVER", "0"), 0.0)
+        if ("WATCHLIST_UNIVERSE_N" not in os.environ or not str(os.getenv("WATCHLIST_UNIVERSE_N", "")).strip()) and os.getenv("UNIVERSE_SIZE") is not None:
+            values["watchlist_universe_n"] = _coerce_int(os.getenv("UNIVERSE_SIZE", "200"), 200)
+        if ("WATCHLIST_BATCH_N" not in os.environ or not str(os.getenv("WATCHLIST_BATCH_N", "")).strip()) and os.getenv("BATCH_SIZE") is not None:
+            values["watchlist_batch_n"] = _coerce_int(os.getenv("BATCH_SIZE", "20"), 20)
         if not values.get("max_open_positions") and "MAX_OPEN_POSITIONS" not in os.environ:
             legacy = os.getenv("RISK_ONE_POSITION_ONLY")
             if legacy is not None:
-                values["max_open_positions"] = 1 if str(legacy).strip().lower() in {"1", "true", "yes", "on"} else 0
+                values["max_open_positions"] = 1 if _coerce_bool(legacy, False) else 0
         return values
 
     @root_validator(pre=False)
