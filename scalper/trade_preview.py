@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from .levels import _parse_overrides, resolve_sl_tp_multipliers
+
 
 _VALID_SIDES = {"LONG", "SHORT"}
 
@@ -201,6 +203,11 @@ def build_trade_preview(
     tp_r_mult = _as_float(meta.get("tp_r_mult"))
     sl_atr_mult = float(getattr(risk_settings, "paper_sl_atr", 1.0) or 1.0) if risk_settings else 1.0
     tp_atr_mult = float(getattr(risk_settings, "paper_tp_atr", 1.5) or 1.5) if risk_settings else 1.5
+    sl_overrides = _parse_overrides(getattr(risk_settings, "sl_multiplier_overrides_raw", "") or "") if risk_settings else {}
+    tp_overrides = _parse_overrides(getattr(risk_settings, "tp_multiplier_overrides_raw", "") or "") if risk_settings else {}
+    sl_atr_mult, tp_atr_mult = resolve_sl_tp_multipliers(
+        symbol, sl_atr_mult, tp_atr_mult, sl_overrides or None, tp_overrides or None
+    )
 
     if sl_hint is not None and sl_hint > 0:
         sl = float(sl_hint)

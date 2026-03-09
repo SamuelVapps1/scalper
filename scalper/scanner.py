@@ -532,6 +532,7 @@ def run_scan_cycle(
     from scalper.settings import get_settings
     from scalper.signals import (
         evaluate_early_intents_from_5m,
+        evaluate_higher_tf_context,
         evaluate_symbol_intents,
     )
     from scalper.strategy_engine import StrategyEngine
@@ -800,12 +801,29 @@ def run_scan_cycle(
                     for nm in evaluated.get("near_miss_candidates", []) or []:
                         all_near_miss_candidates.append(dict(nm))
                 else:
+                    candles_1h = (run_context.get("candles_1h") or {}).get(symbol)
+                    if candles_1h is None and getattr(_config, "LOOKBACK_1H", 0):
+                        try:
+                            candles_1h = fetch_klines(
+                                symbol=symbol,
+                                interval="60",
+                                limit=int(getattr(_config, "LOOKBACK_1H", 100)),
+                            )
+                        except Exception:
+                            candles_1h = []
+                        run_context.setdefault("candles_1h", {})[symbol] = candles_1h or []
+                    higher_tf_context = (
+                        evaluate_higher_tf_context(symbol, candles_1h=candles_1h or [])
+                        if (candles_1h and len(candles_1h) >= 50)
+                        else None
+                    )
                     evaluated = evaluate_symbol_intents(
                         symbol=symbol,
                         candles=candles,
                         signal_debug=signal_debug,
                         early_min_conf=early_min_conf,
                         threshold_profile=active_profile,
+                        higher_tf_context=higher_tf_context,
                     )
                 symbol_context["market_snapshot"] = dict(evaluated.get("market_snapshot", {}) or {})
                 symbol_context["candidates_before"] = list(
@@ -830,6 +848,7 @@ def run_scan_cycle(
                                 signal_debug=True,
                                 early_min_conf=early_min_conf,
                                 threshold_profile=prof,
+                                higher_tf_context=higher_tf_context,
                             )
                         finals = list(ev_prof.get("final_intents", []) or [])
                         if finals:
@@ -1066,6 +1085,7 @@ def run_scan_cycle(
                             "timeframe": str(interval),
                             "candle_ts": bar_ts_used,
                             "ts": intent_ts,
+                            "confidence": float(intent_confidence) if intent_confidence is not None else 0.0,
                         },
                         snapshot=risk_snapshot,
                     )

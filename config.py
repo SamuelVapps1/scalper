@@ -4,9 +4,24 @@ Thin re-export layer: normal imports only, no dynamic loading.
 """
 from __future__ import annotations
 
+import json
+from typing import Dict
+
 from scalper.settings import _ENV_BOOTSTRAP_STATE, debug_env, debug_risk_config, get_settings
 
 _s = get_settings()
+
+
+def _parse_level_overrides(raw: str) -> Dict[str, float]:
+    if not raw or not str(raw).strip():
+        return {}
+    try:
+        d = json.loads(raw)
+        if not isinstance(d, dict):
+            return {}
+        return {str(k).strip().upper(): float(v) for k, v in d.items() if v is not None}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
 
 WATCHLIST_MODE = _s.risk.watchlist_mode
 WATCHLIST = _s.risk.watchlist
@@ -102,6 +117,13 @@ MAX_DD_PCT = _s.risk.max_dd_pct
 MAX_TRADES_DAY = _s.risk.max_trades_day
 MIN_SECONDS_BETWEEN_TRADES = _s.risk.min_seconds_between_trades
 MIN_SECONDS_BETWEEN_SYMBOL_TRADES = _s.risk.min_seconds_between_symbol_trades
+COOLDOWN_CONSECUTIVE_LOSS_MULT = getattr(_s.risk, "cooldown_consecutive_loss_mult", 0.5)
+COOLDOWN_HIGH_CONF_REDUCE_PCT = getattr(_s.risk, "cooldown_high_conf_reduce_pct", 0.20)
+COOLDOWN_HIGH_CONF_MIN = getattr(_s.risk, "cooldown_high_conf_min", 0.68)
+SL_MULTIPLIER_OVERRIDES_RAW = getattr(_s.risk, "sl_multiplier_overrides_raw", "") or ""
+TP_MULTIPLIER_OVERRIDES_RAW = getattr(_s.risk, "tp_multiplier_overrides_raw", "") or ""
+SL_MULTIPLIER_OVERRIDES = _parse_level_overrides(SL_MULTIPLIER_OVERRIDES_RAW)
+TP_MULTIPLIER_OVERRIDES = _parse_level_overrides(TP_MULTIPLIER_OVERRIDES_RAW)
 MAX_SYMBOL_NOTIONAL_PCT = _s.risk.max_symbol_notional_pct
 CLUSTER_BTC_ETH_LIMIT = _s.risk.cluster_btc_eth_limit
 FAIL_CLOSED_ON_SNAPSHOT_MISSING = _s.risk.fail_closed_on_snapshot_missing

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+import json
+import logging
+from typing import Any, Dict, Optional
+
+_log = logging.getLogger(__name__)
 
 
 def _as_pos_float(value: Any) -> float | None:
@@ -13,17 +17,54 @@ def _as_pos_float(value: Any) -> float | None:
     return parsed
 
 
+def _parse_overrides(raw: str) -> Dict[str, float]:
+    if not raw or not str(raw).strip():
+        return {}
+    try:
+        d = json.loads(raw)
+        if not isinstance(d, dict):
+            return {}
+        return {str(k).strip().upper(): float(v) for k, v in d.items() if v is not None}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        _log.debug("levels: invalid overrides json %s", raw[:80])
+        return {}
+
+
+def resolve_sl_tp_multipliers(
+    symbol: Optional[str],
+    sl_atr_mult: float,
+    tp_atr_mult: float,
+    sl_overrides: Optional[Dict[str, float]] = None,
+    tp_overrides: Optional[Dict[str, float]] = None,
+) -> tuple[float, float]:
+    """Resolve effective SL/TP ATR multipliers; symbol-specific overrides replace base when set."""
+    sym = (str(symbol or "").strip().upper()) or None
+    sl_mult = max(1e-6, float(sl_atr_mult))
+    tp_mult = max(1e-6, float(tp_atr_mult))
+    if sym and sl_overrides and sym in sl_overrides:
+        sl_mult = max(1e-6, float(sl_overrides[sym]))
+    if sym and tp_overrides and sym in tp_overrides:
+        tp_mult = max(1e-6, float(tp_overrides[sym]))
+    return (sl_mult, tp_mult)
+
+
 def compute_tp_sl(
     entry: float,
     atr: float,
     side: str,
     sl_atr_mult: float,
     tp_atr_mult: float,
+    symbol: Optional[str] = None,
+    sl_overrides: Optional[Dict[str, float]] = None,
+    tp_overrides: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     entry_val = _as_pos_float(entry)
     atr_val = _as_pos_float(atr)
-    sl_mult = _as_pos_float(sl_atr_mult)
-    tp_mult = _as_pos_float(tp_atr_mult)
+    sl_mult, tp_mult = resolve_sl_tp_multipliers(
+        symbol, sl_atr_mult, tp_atr_mult, sl_overrides, tp_overrides
+    )
+    sl_mult = _as_pos_float(sl_mult) or _as_pos_float(sl_atr_mult)
+    tp_mult = _as_pos_float(tp_mult) or _as_pos_float(tp_atr_mult)
     side_norm = str(side or "").strip().upper()
 
     out: Dict[str, Any] = {

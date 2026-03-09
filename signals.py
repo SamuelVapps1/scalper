@@ -4,6 +4,28 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 
+def _safe_atr_series(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """ATR series with fallback: if last value is NaN/0, use previous valid or local TR mean."""
+    prev_close = df["close"].shift(1)
+    tr = pd.concat(
+        [
+            (df["high"] - df["low"]).abs(),
+            (df["high"] - prev_close).abs(),
+            (df["low"] - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    atr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    last = atr.iloc[-1] if len(atr) else None
+    if last is None or (isinstance(last, (int, float)) and (pd.isna(last) or float(last) <= 0)):
+        valid = atr[atr.notna() & (atr > 0)]
+        if len(valid):
+            atr = atr.ffill().fillna(valid.iloc[-1])
+        else:
+            atr = atr.fillna(tr.rolling(period, min_periods=1).mean())
+    return atr
+
+
 def _ema(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(span=period, adjust=False).mean()
 
@@ -30,16 +52,8 @@ def _macd(series: pd.Series) -> pd.DataFrame:
 
 
 def _atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    prev_close = df["close"].shift(1)
-    tr = pd.concat(
-        [
-            (df["high"] - df["low"]).abs(),
-            (df["high"] - prev_close).abs(),
-            (df["low"] - prev_close).abs(),
-        ],
-        axis=1,
-    ).max(axis=1)
-    return tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    """ATR with fallback so latest bar always has a numeric value."""
+    return _safe_atr_series(df, period)
 
 
 def _market_snapshot(symbol: str, candles: List[Dict[str, float]]) -> Dict[str, Any]:
@@ -58,15 +72,67 @@ def _build_frame(candles: List[Dict[str, float]]) -> pd.DataFrame:
     df = pd.DataFrame(candles)
     if df.empty:
         return df
+    for col in ("close", "high", "low", "open"):
+        if col in df.columns:
+            df[col] = df[col].ffill().bfill().fillna(0.0)
     df["ema20"] = _ema(df["close"], 20)
     df["ema50"] = _ema(df["close"], 50)
     df["ema200"] = _ema(df["close"], 200)
     df["rsi14"] = _rsi(df["close"], 14)
     df["atr14"] = _atr(df, 14)
+    last_atr = df["atr14"].iloc[-1] if len(df) else None
+    if last_atr is None or (pd.notna(last_atr) and float(last_atr) <= 0) or pd.isna(last_atr):
+        valid = df["atr14"][df["atr14"].notna() & (df["atr14"] > 0)]
+        if len(valid):
+            df["atr14"] = df["atr14"].ffill().fillna(valid.iloc[-1])
+        else:
+            df["atr14"] = df["atr14"].fillna((df["high"] - df["low"]).rolling(14, min_periods=1).mean())
 
     macd_df = _macd(df["close"])
     df = pd.concat([df, macd_df], axis=1)
     return df
+
+
+def evaluate_higher_tf_context(
+    symbol: str,
+    candles_1h: Optional[List[Dict[str, float]]] = None,
+    candles_4h: Optional[List[Dict[str, float]]] = None,
+) -> Dict[str, bool]:
+    """
+    Compute higher-timeframe alignment for MTF confirmation.
+    Returns bullish_ok and bearish_ok: True if that direction is aligned on 1h (and 4h if provided).
+    Uses 1h when available; 4h is optional. If no HTF data, returns both True (no filter).
+    """
+    out: Dict[str, bool] = {"bullish_ok": True, "bearish_ok": True}
+    candles_htf = candles_1h or candles_4h
+    if not candles_htf or len(candles_htf) < 50:
+        return out
+    df = _build_frame(candles_htf)
+    if df.empty or len(df) < 50:
+        return out
+    latest = df.iloc[-1]
+    # EMA alignment: bullish = close > ema20 > ema50 > ema200
+    bullish_stack = (
+        latest["close"] > latest["ema20"]
+        and latest["ema20"] > latest["ema50"]
+        and latest["ema50"] > latest["ema200"]
+    )
+    bearish_stack = (
+        latest["close"] < latest["ema20"]
+        and latest["ema20"] < latest["ema50"]
+        and latest["ema50"] < latest["ema200"]
+    )
+    # EMA200 slope over last 10 bars (upward = bullish)
+    if len(df) >= 11:
+        ema200_now = float(df["ema200"].iloc[-1])
+        ema200_prev = float(df["ema200"].iloc[-11])
+        slope_up = ema200_now > ema200_prev
+        slope_down = ema200_now < ema200_prev
+    else:
+        slope_up = slope_down = True
+    out["bullish_ok"] = bullish_stack and slope_up
+    out["bearish_ok"] = bearish_stack and slope_down
+    return out
 
 
 def evaluate_symbol_intents(
@@ -75,6 +141,7 @@ def evaluate_symbol_intents(
     signal_debug: bool = False,
     early_min_conf: float = 0.35,
     threshold_profile: str = "A",
+    higher_tf_context: Optional[Dict[str, bool]] = None,
 ) -> Dict[str, Any]:
     if len(candles) < 210:
         return {
@@ -138,6 +205,19 @@ def evaluate_symbol_intents(
 
     profile_threshold = {"A": 0.45, "B": 0.55, "C": 0.65}.get(str(threshold_profile or "A").upper(), 0.45)
     final_intents = [c for c in candidates if float(c.get("confidence", 0.0)) >= max(profile_threshold, early_min_conf)]
+    # MTF: demote intents whose direction is not confirmed by higher timeframe
+    if higher_tf_context:
+        promoted: List[Dict[str, Any]] = []
+        for c in final_intents:
+            side = str(c.get("side", "") or "").upper()
+            if side == "LONG" and not higher_tf_context.get("bullish_ok", True):
+                near_miss.append({**c, "reason": (c.get("reason") or "") + "; mtf_not_bullish"})
+                continue
+            if side == "SHORT" and not higher_tf_context.get("bearish_ok", True):
+                near_miss.append({**c, "reason": (c.get("reason") or "") + "; mtf_not_bearish"})
+                continue
+            promoted.append(c)
+        final_intents = promoted
     debug = {"threshold_profile": str(threshold_profile).upper(), "candidates": len(candidates)}
     if not final_intents:
         debug["reason"] = "below_threshold_or_no_setup"

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import sqlite_store
+
+_log = logging.getLogger(__name__)
 
 CSV_PATH = Path("signals_log.csv")
 CSV_ENRICHED_PATH = Path("signals_enriched_log.csv")
@@ -61,6 +64,19 @@ def _csv_write(path: Path, headers: List[str], row: Dict[str, Any]) -> None:
         writer.writerow({h: row.get(h, "") for h in headers})
 
 
+def _has_valid_levels(signal: Dict[str, Any]) -> bool:
+    entry = signal.get("entry")
+    sl = signal.get("sl")
+    tp = signal.get("tp")
+    if entry is None or sl is None or tp is None:
+        return False
+    try:
+        e, s, t = float(entry), float(sl), float(tp)
+    except (TypeError, ValueError):
+        return False
+    return e > 0 and s > 0 and t > 0
+
+
 def append_signal(signal: Dict[str, Any]) -> None:
     row = {
         "timestamp_utc": signal.get("timestamp_utc", ""),
@@ -71,28 +87,62 @@ def append_signal(signal: Dict[str, Any]) -> None:
         "reason": signal.get("reason", ""),
     }
     _csv_write(CSV_PATH, CSV_HEADERS, row)
-    _csv_write(
-        CSV_ENRICHED_PATH,
-        [
-            "timestamp_utc",
-            "symbol",
-            "setup",
-            "direction",
-            "close",
-            "reason",
-            "confidence",
-            "entry",
-            "sl",
-            "tp",
-        ],
-        {
-            **row,
-            "confidence": signal.get("confidence", ""),
-            "entry": signal.get("entry", ""),
-            "sl": signal.get("sl", ""),
-            "tp": signal.get("tp", ""),
-        },
-    )
+
+    if not _has_valid_levels(signal):
+        reason = str(signal.get("reason", "") or "").strip() or "PREVIEW_BUILD_FAILED"
+        _log.warning(
+            "PREVIEW_BUILD_FAILED symbol=%s setup=%s direction=%s reason=%s (missing or invalid entry/sl/tp)",
+            row.get("symbol", ""),
+            row.get("setup", ""),
+            row.get("direction", ""),
+            reason,
+        )
+        _csv_write(
+            CSV_ENRICHED_PATH,
+            [
+                "timestamp_utc",
+                "symbol",
+                "setup",
+                "direction",
+                "close",
+                "reason",
+                "confidence",
+                "entry",
+                "sl",
+                "tp",
+            ],
+            {
+                **row,
+                "reason": reason,
+                "confidence": signal.get("confidence", ""),
+                "entry": "",
+                "sl": "",
+                "tp": "",
+            },
+        )
+    else:
+        _csv_write(
+            CSV_ENRICHED_PATH,
+            [
+                "timestamp_utc",
+                "symbol",
+                "setup",
+                "direction",
+                "close",
+                "reason",
+                "confidence",
+                "entry",
+                "sl",
+                "tp",
+            ],
+            {
+                **row,
+                "confidence": signal.get("confidence", ""),
+                "entry": signal.get("entry", ""),
+                "sl": signal.get("sl", ""),
+                "tp": signal.get("tp", ""),
+            },
+        )
     try:
         sqlite_store.store_signal(dict(signal))
     except Exception:
