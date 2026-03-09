@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -137,6 +136,3 @@ class PaperBroker:
         position_id = str(trade.get("intent_id", "") or trade.get("position_id", "")).strip()
         if position_id:
             self.store.delete_paper_position(position_id)
-=======
-from scalper.scalper.paper_broker import *  # noqa: F401,F403
->>>>>>> b1a8f4e7765cfa90c470121f7cfaad7339fce0ee

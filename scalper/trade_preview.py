@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 from __future__ import annotations
 
 import logging
@@ -294,6 +293,3 @@ def build_trade_preview(
         }
     )
     return preview
-=======
-from scalper.scalper.trade_preview import *  # noqa: F401,F403
->>>>>>> b1a8f4e7765cfa90c470121f7cfaad7339fce0ee
