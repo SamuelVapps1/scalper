@@ -3,3 +3,10 @@
 __pycache__/
 *.pyc
 signals_log.csv
+
+# SQLite runtime (env-specific; do not commit)
+*.db
+*.db-shm
+*.db-wal
+*.db.bak*
+data/

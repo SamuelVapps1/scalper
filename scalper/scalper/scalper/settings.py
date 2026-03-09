@@ -6,7 +6,18 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List
 
-from pydantic.v1 import BaseModel, BaseSettings, Field, root_validator
+try:
+    from pydantic.v1 import BaseModel, Field, root_validator
+except ImportError:
+    from pydantic import BaseModel, Field, root_validator  # type: ignore[assignment]
+
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    try:
+        from pydantic.v1 import BaseSettings
+    except ImportError:
+        from pydantic import BaseSettings  # type: ignore[assignment]
 
 try:
     from dotenv import dotenv_values, find_dotenv, load_dotenv
@@ -446,6 +457,27 @@ def get_settings() -> Settings:
         cache=CacheSettings(),
         dashboard=DashboardSettings(),
     )
+
+
+def validate_env() -> tuple[bool, list[str]]:
+    """
+    Load settings and validate required env.
+    Returns (ok, missing_keys). missing_keys is empty when ok is True.
+    Fails when WATCHLIST is empty and WATCHLIST_MODE is static (or not set).
+    """
+    missing: list[str] = []
+    try:
+        s = get_settings()
+    except Exception as e:
+        return False, [f"Failed to load settings: {e}"]
+    mode = str(s.risk.watchlist_mode or "static").strip().lower()
+    watchlist = s.risk.watchlist
+    if not watchlist and mode == "static":
+        missing.append(
+            "WATCHLIST is empty and WATCHLIST_MODE=static. "
+            "Set WATCHLIST in .env (e.g. WATCHLIST=BTCUSDT,ETHUSDT) or set WATCHLIST_MODE=topn|dynamic."
+        )
+    return (len(missing) == 0, missing)
 
 
 def debug_risk_config(logger=None):

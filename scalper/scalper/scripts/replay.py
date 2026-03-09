@@ -172,6 +172,7 @@ def run_replay(
     cache_only: bool = False,
     end_days_ago: Optional[int] = None,
     start_days_ago: Optional[int] = None,
+    v3_params_override: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     settings = get_settings()
     risk = settings.risk
@@ -218,6 +219,27 @@ def run_replay(
     trend_sep_atr_1h = strat.trend_sep_atr_1h
     use_5m_confirm = strat.use_5m_confirm
 
+    v3_params_dict = {
+        "DONCHIAN_N_15M": donchian_n,
+        "BODY_ATR_15M": body_atr_15m,
+        "TREND_SEP_ATR_1H": trend_sep_atr_1h,
+        "USE_5M_CONFIRM": use_5m_confirm,
+        "ATR_REGIME_MIN_PCTL": 0,
+        "BREAKOUT_BUFFER_ATR": 0.0,
+        "SLOPE_MIN_4H": 0.0,
+        "BODY_MAX_ATR": 0.0,
+    }
+    if v3_params_override:
+        for k, v in v3_params_override.items():
+            if isinstance(v, bool):
+                v3_params_dict[k] = v
+            elif isinstance(v, int):
+                v3_params_dict[k] = int(v)
+            elif isinstance(v, float):
+                v3_params_dict[k] = float(v)
+            else:
+                v3_params_dict[k] = v
+
     range_info = (
         {"start_days_ago": start_days_ago, "end_days_ago": end_days_ago}
         if (start_days_ago is not None and end_days_ago is not None)
@@ -238,13 +260,7 @@ def run_replay(
             "V1_SETUP_TRAP": v1_trap,
             "V3_TREND_BREAKOUT": v3,
         },
-        "v3_params": {
-            "V3_TREND_BREAKOUT": v3,
-            "DONCHIAN_N_15M": donchian_n,
-            "BODY_ATR_15M": body_atr_15m,
-            "TREND_SEP_ATR_1H": trend_sep_atr_1h,
-            "USE_5M_CONFIRM": use_5m_confirm,
-        },
+        "v3_params": {"V3_TREND_BREAKOUT": v3, **v3_params_dict},
         "TP_R": tp_r,
         "SL_ATR_MULT": sl_atr_mult,
         "TOL_ATR": tol_atr,
@@ -392,13 +408,6 @@ def run_replay(
     skip_by_symbol: Dict[str, Dict[str, int]] = {s: {r: 0 for r in skip_reasons} for s in symbols}
     v3_triggers_total = 0
     risk_invalid_count = 0
-
-    v3_params_dict = {
-        "DONCHIAN_N_15M": strat.donchian_n_15m,
-        "BODY_ATR_15M": strat.body_atr_15m,
-        "TREND_SEP_ATR_1H": strat.trend_sep_atr_1h,
-        "USE_5M_CONFIRM": strat.use_5m_confirm,
-    }
 
     v3_map15_to_5: Dict[str, List[int]] = {}
     v3_close5: Dict[str, List[float]] = {}
@@ -766,6 +775,14 @@ def run_replay(
 def main() -> int:
     parser = argparse.ArgumentParser(description="REPLAY: simulate paper trades over historical data. DRY RUN only.")
     parser.add_argument("--symbols", type=str, default="BTCUSDT,ETHUSDT", help="Comma-separated symbols")
+    parser.add_argument("--start", type=str, default=None, help="Start date YYYY-MM-DD (harness mode)")
+    parser.add_argument("--end", type=str, default=None, help="End date YYYY-MM-DD (harness mode)")
+    parser.add_argument("--interval", type=int, default=15, help="Candle interval minutes (harness mode)")
+    parser.add_argument("--fees-bps", type=float, default=6, help="Fees bps (harness mode)")
+    parser.add_argument("--slippage-bps", type=float, default=2, help="Slippage bps (harness mode)")
+    parser.add_argument("--spread-bps", type=float, default=1, help="Spread bps (harness mode)")
+    parser.add_argument("--seed", type=int, default=123, help="Random seed (harness mode)")
+    parser.add_argument("--out-tag", type=str, default="replay", help="Output tag (harness mode)")
     parser.add_argument("--days", type=int, default=7, help="Days of history")
     parser.add_argument("--tf-trigger", type=int, default=15, help="Trigger TF (minutes)")
     parser.add_argument("--tf-timing", type=int, default=5, help="Timing TF for fill/SL/TP (minutes)")
@@ -792,6 +809,25 @@ def main() -> int:
         if any(c.isspace() for c in sym):
             raise ValueError(f"Symbol contains whitespace: {repr(sym)}")
     _log.info("NORMALIZED_SYMBOLS=%s count=%d", symbols, len(symbols))
+
+    if args.start and args.end:
+        from scalper.replay_harness import run_replay as run_harness
+        summary = run_harness(
+            symbols=symbols,
+            start_str=args.start,
+            end_str=args.end,
+            interval=args.interval,
+            fees_bps=args.fees_bps,
+            slippage_bps=args.slippage_bps,
+            spread_bps=args.spread_bps,
+            seed=args.seed,
+            out_tag=args.out_tag,
+            use_cache=not args.no_cache,
+            emit_events=True,
+        )
+        _log.info("Summary: %s", summary)
+        _log.info("Artifacts in ./runs/: equity_curve_%s.csv, trades_%s.csv, summary_%s.json", args.out_tag, args.out_tag, args.out_tag)
+        return 0
 
     days_arg = args.days
     if args.start_days_ago is not None and args.end_days_ago is not None:

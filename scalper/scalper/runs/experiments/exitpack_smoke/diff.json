@@ -1,0 +1,20 @@
+{
+  "_schema": {
+    "deltas": "All numeric fields below are deltas (variant - baseline)",
+    "absolute": "Absolute values are in summary.json under baseline and variant"
+  },
+  "PF": -949.3269,
+  "maxDD": 0.18,
+  "winrate": -7.14,
+  "winrate_roundtrip": -12.5,
+  "winrate_fill": -7.14,
+  "trades_per_day": 0.0,
+  "fills_per_day": 1.2,
+  "entries_per_day": 0.0,
+  "avgR": -0.2687,
+  "trades": 6,
+  "entries_count": 0,
+  "closes_count": 0,
+  "partial_closes_count": 6,
+  "total_fills_count": 6
+}

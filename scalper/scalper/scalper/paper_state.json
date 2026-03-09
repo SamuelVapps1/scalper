@@ -1,0 +1,275 @@
+{
+  "day_utc": "2026-02-23",
+  "trade_count_today": 30,
+  "daily_pnl_sim": 0.2872796738295849,
+  "consecutive_losses": 5,
+  "cooldown_until_utc": "2026-02-23T19:02:43.613031+00:00",
+  "open_positions": [],
+  "closed_trades": [
+    {
+      "symbol": "ETHUSDT",
+      "side": "SHORT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "intent_id": "ETHUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|299|1932.641771",
+      "entry_ts": "2026-02-23T13:48:05.414829+00:00",
+      "close_ts": "2026-02-23T14:30:00+00:00",
+      "bars_held": 3,
+      "pnl_usdt": 0.2746732621784115,
+      "close_reason": "TP"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "side": "SHORT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "intent_id": "SOLUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|299|81.010000",
+      "entry_ts": "2026-02-23T13:48:05.880023+00:00",
+      "close_ts": "2026-02-23T14:30:00+00:00",
+      "bars_held": 3,
+      "pnl_usdt": 0.3226791276077563,
+      "close_reason": "TP"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "side": "SHORT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "intent_id": "ETHUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|298|1931.809690",
+      "entry_ts": "2026-02-23T14:15:00+00:00",
+      "close_ts": "2026-02-23T15:30:00+00:00",
+      "bars_held": 3,
+      "pnl_usdt": 0.2955298557597602,
+      "close_reason": "TP"
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "intent_id": "XRPUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|298|1.395106",
+      "entry_ts": "2026-02-23T14:15:00+00:00",
+      "close_ts": "2026-02-23T15:30:00+00:00",
+      "bars_held": 3,
+      "pnl_usdt": 0.4503170608991877,
+      "close_reason": "TP"
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "side": "SHORT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "intent_id": "DOGEUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|298|0.096284",
+      "entry_ts": "2026-02-23T15:15:00+00:00",
+      "close_ts": "2026-02-23T16:15:00+00:00",
+      "bars_held": 2,
+      "pnl_usdt": 0.4243979036081954,
+      "close_reason": "TP"
+    },
+    {
+      "symbol": "XAUTUSDT",
+      "side": "SHORT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "intent_id": "XAUTUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|298|5179.200000",
+      "entry_ts": "2026-02-23T15:15:00+00:00",
+      "close_ts": "2026-02-23T16:15:00+00:00",
+      "bars_held": 2,
+      "pnl_usdt": -0.1646024654923126,
+      "close_reason": "SL"
+    },
+    {
+      "symbol": "HYPEUSDT",
+      "side": "LONG",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "intent_id": "HYPEUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|298|26.618000",
+      "entry_ts": "2026-02-23T14:30:00+00:00",
+      "close_ts": "2026-02-23T16:15:00+00:00",
+      "bars_held": 4,
+      "pnl_usdt": -0.5469448239878332,
+      "close_reason": "SL"
+    },
+    {
+      "symbol": "AGLDUSDT",
+      "side": "LONG",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "intent_id": "AGLDUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|298|0.326550",
+      "entry_ts": "2026-02-23T16:45:00+00:00",
+      "close_ts": "2026-02-23T17:00:00+00:00",
+      "bars_held": 1,
+      "pnl_usdt": -0.5255676750842829,
+      "close_reason": "SL"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "side": "LONG",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "intent_id": "BTCUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|298|64268.700000",
+      "entry_ts": "2026-02-23T17:45:00+00:00",
+      "close_ts": "2026-02-23T18:30:00+00:00",
+      "bars_held": 12,
+      "pnl_usdt": -0.07798744430068438,
+      "close_reason": "TIMEOUT"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "side": "LONG",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "intent_id": "ETHUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|298|1840.660000",
+      "entry_ts": "2026-02-23T17:45:00+00:00",
+      "close_ts": "2026-02-23T18:30:00+00:00",
+      "bars_held": 12,
+      "pnl_usdt": -0.16521512735861305,
+      "close_reason": "TIMEOUT"
+    }
+  ],
+  "intent_fingerprints": [
+    {
+      "fingerprint": "ETHUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T14:15:00+00:00",
+      "symbol": "ETHUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T14:15:00+00:00"
+    },
+    {
+      "fingerprint": "ETHUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T14:30:00+00:00",
+      "symbol": "ETHUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T14:30:00+00:00"
+    },
+    {
+      "fingerprint": "SOLUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T13:48:05.880023+00:00",
+      "symbol": "SOLUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T13:48:05.880023+00:00"
+    },
+    {
+      "fingerprint": "SOLUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T13:50:41.458473+00:00",
+      "symbol": "SOLUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T13:50:41.458473+00:00"
+    },
+    {
+      "fingerprint": "XRPUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T14:15:00+00:00",
+      "symbol": "XRPUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T14:15:00+00:00"
+    },
+    {
+      "fingerprint": "XRPUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T14:30:00+00:00",
+      "symbol": "XRPUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T14:30:00+00:00"
+    },
+    {
+      "fingerprint": "HYPEUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|2026-02-23T14:30:00+00:00",
+      "symbol": "HYPEUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "LONG",
+      "bar_ts": "2026-02-23T14:30:00+00:00"
+    },
+    {
+      "fingerprint": "HYPEUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|2026-02-23T17:45:00+00:00",
+      "symbol": "HYPEUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "LONG",
+      "bar_ts": "2026-02-23T17:45:00+00:00"
+    },
+    {
+      "fingerprint": "1000PEPEUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|2026-02-23T14:30:00+00:00",
+      "symbol": "1000PEPEUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "LONG",
+      "bar_ts": "2026-02-23T14:30:00+00:00"
+    },
+    {
+      "fingerprint": "BNBUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T14:30:00+00:00",
+      "symbol": "BNBUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T14:30:00+00:00"
+    },
+    {
+      "fingerprint": "BNBUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T15:15:00+00:00",
+      "symbol": "BNBUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T15:15:00+00:00"
+    },
+    {
+      "fingerprint": "ADAUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T14:30:00+00:00",
+      "symbol": "ADAUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T14:30:00+00:00"
+    },
+    {
+      "fingerprint": "DOGEUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T15:30:00+00:00",
+      "symbol": "DOGEUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T15:30:00+00:00"
+    },
+    {
+      "fingerprint": "DOGEUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T16:00:00+00:00",
+      "symbol": "DOGEUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T16:00:00+00:00"
+    },
+    {
+      "fingerprint": "XAUTUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|SHORT|2026-02-23T15:15:00+00:00",
+      "symbol": "XAUTUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "SHORT",
+      "bar_ts": "2026-02-23T15:15:00+00:00"
+    },
+    {
+      "fingerprint": "AGLDUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|2026-02-23T16:45:00+00:00",
+      "symbol": "AGLDUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "LONG",
+      "bar_ts": "2026-02-23T16:45:00+00:00"
+    },
+    {
+      "fingerprint": "BTCUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|2026-02-23T17:45:00+00:00",
+      "symbol": "BTCUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "LONG",
+      "bar_ts": "2026-02-23T17:45:00+00:00"
+    },
+    {
+      "fingerprint": "ETHUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|2026-02-23T17:45:00+00:00",
+      "symbol": "ETHUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "LONG",
+      "bar_ts": "2026-02-23T17:45:00+00:00"
+    },
+    {
+      "fingerprint": "SOLUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|2026-02-23T17:45:00+00:00",
+      "symbol": "SOLUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "LONG",
+      "bar_ts": "2026-02-23T17:45:00+00:00"
+    },
+    {
+      "fingerprint": "XRPUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|2026-02-23T17:45:00+00:00",
+      "symbol": "XRPUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "LONG",
+      "bar_ts": "2026-02-23T17:45:00+00:00"
+    },
+    {
+      "fingerprint": "DOGEUSDT|FAILED_BREAKOUT_OR_FAILED_EMA200_FADE|LONG|2026-02-23T17:45:00+00:00",
+      "symbol": "DOGEUSDT",
+      "strategy": "FAILED_BREAKOUT_OR_FAILED_EMA200_FADE",
+      "side": "LONG",
+      "bar_ts": "2026-02-23T17:45:00+00:00"
+    }
+  ],
+  "early_alert_keys": [],
+  "last_scan_ts": 1771875320,
+  "last_block_reason": "-",
+  "signal_hashes": [],
+  "trade_intents": [],
+  "risk_events": []
+}

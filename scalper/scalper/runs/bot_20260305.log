@@ -1,0 +1,47 @@
+2026-03-05 23:24:17,239 | INFO | Logging initialized file=C:\Users\Admin\Desktop\scalper\runs\bot_20260305.log
+2026-03-05 23:24:17,266 | INFO | Bot starting cwd=C:\Users\Admin\Desktop\scalper once=False loop=True paper=False instance_id=-
+2026-03-05 23:24:17,277 | INFO | Universe loaded from config.WATCHLIST: raw_len=15 parsed_len=2 symbols=BTCUSDT,ETHUSDT
+2026-03-05 23:24:17,280 | INFO | Universe size = 2
+2026-03-05 23:24:32,346 | INFO | Shutdown signal received: SIGINT
+2026-03-05 23:24:32,349 | INFO | Graceful shutdown complete.
+2026-03-05 23:25:10,216 | INFO | Logging initialized file=C:\Users\Admin\Desktop\scalper\runs\bot_20260305.log
+2026-03-05 23:25:10,217 | INFO | Bot starting cwd=C:\Users\Admin\Desktop\scalper once=False loop=True paper=False instance_id=-
+2026-03-05 23:25:10,218 | INFO | Universe loaded from config.WATCHLIST: raw_len=15 parsed_len=2 symbols=BTCUSDT,ETHUSDT
+2026-03-05 23:25:10,218 | INFO | Universe size = 2
+2026-03-05 23:25:23,872 | INFO | WATCHLIST kline_validation invalid_symbols=0 replaced_symbols=0 final_effective_batch=20
+2026-03-05 23:25:23,875 | INFO | WATCHLIST universe_n=170 batch_n=20 batch_effective=20 offset=115 source=fresh excluded_prefix=0 excluded_symbol=3 excluded_regex=0 selected=ETHFIUSDT,PLUMEUSDT,JASMYUSDT,BEATUSDT,USELESSUSDT,HANAUSDT,SKYUSDT,GRASSUSDT,MORPHOUSDT,STGUSDT,USUALUSDT,FHEUSDT,ALLOUSDT,ZKUSDT,LINEAUSDT,KAITOUSDT,APEUSDT,DEEPUSDT,IMXUSDT,MAGICUSDT
+2026-03-05 23:25:24,141 | INFO | Startup mode_once=False mode_loop=True mode_paper=False tf=5 universe_mode=market universe_n=170 batch_n=20 offset=115 cwd=C:\Users\Admin\Desktop\scalper
+2026-03-05 23:25:24,141 | INFO | WATCHLIST mode=market universe_n=170 batch_n=20 effective=20 offset=115 source=fresh
+2026-03-05 23:25:24,141 | INFO | Starting Bybit Signal Bot in DRY RUN mode (no trading).
+2026-03-05 23:25:24,141 | INFO | TELEGRAM_POLICY=events NOTIFY_SCAN_SUMMARY=True DISABLE_SCAN_SUMMARY=True HEARTBEAT_MINUTES=5
+2026-03-05 23:25:24,142 | INFO | Starting --loop mode (single process, scan every 300s). Ctrl+C to stop. Cache stays warm.
+2026-03-05 23:25:39,002 | INFO | WATCHLIST kline_validation invalid_symbols=0 replaced_symbols=0 final_effective_batch=20
+2026-03-05 23:25:39,003 | INFO | WATCHLIST universe_n=170 batch_n=20 batch_effective=20 offset=115 source=cached excluded_prefix=0 excluded_symbol=3 excluded_regex=0 selected=ETHFIUSDT,PLUMEUSDT,JASMYUSDT,BEATUSDT,USELESSUSDT,HANAUSDT,SKYUSDT,GRASSUSDT,MORPHOUSDT,STGUSDT,USUALUSDT,FHEUSDT,ALLOUSDT,ZKUSDT,LINEAUSDT,KAITOUSDT,APEUSDT,DEEPUSDT,IMXUSDT,MAGICUSDT
+2026-03-05 23:25:46,707 | WARNING | VOL_FILTER_SKIP ETHFIUSDT 0.3304
+2026-03-05 23:25:55,989 | WARNING | VOL_FILTER_SKIP JASMYUSDT 0.2905
+2026-03-05 23:26:09,641 | WARNING | VOL_FILTER_SKIP HANAUSDT 0.2686
+2026-03-05 23:26:14,946 | WARNING | VOL_FILTER_SKIP SKYUSDT 0.1499
+2026-03-05 23:27:24,554 | WARNING | VOL_FILTER_SKIP APEUSDT 0.3205
+2026-03-05 23:27:41,919 | INFO | positions_upserted=12 (end of cycle)
+2026-03-05 23:27:42,077 | INFO | 
+BybitSignalBot Dashboard (DRY RUN) | TF=5m | ts=2026-03-05T22:25:40.632840+00:00
+Watchlist (mode=market): ETHFIUSDT, PLUMEUSDT, JASMYUSDT, BEATUSDT, USELESSUSDT, HANAUSDT, SKYUSDT, GRASSUSDT, MORPHOUSDT, STGUSDT, USUALUSDT, FHEUSDT, ALLOUSDT, ZKUSDT, LINEAUSDT, KAITOUSDT, APEUSDT, DEEPUSDT, IMXUSDT, MAGICUSDT
+Risk: open=0/10 trades_today=13 daily_pnl_sim=8.0489 consec_losses=1 cooldown=OFF
+Paper performance: trades_today=13 wins=10 losses=2 winrate=83.33% avg_pnl=0.6191 daily_pnl_sim=8.0489 max_consec_losses=1 max_dd_sim=0.1998
+Last Closed Trades:
+- SOLUSDT LONG FAILED_BREAKOUT_OR_FAILED_EMA200_FADE pnl=0.0849 reason=TIME_STOP
+- KITEUSDT LONG TREND_PULLBACK_EMA20 pnl=1.5884 reason=TIME_STOP
+- STABLEUSDT SHORT RANGE_BREAKOUT_RETEST_GO pnl=-0.0953 reason=SL
+
+Market Snapshot:
+
+Top Intents:
+- none
+
+Collisions (same bar):
+- none
+2026-03-05 23:27:42,084 | INFO | HEARTBEAT_SKIP elapsed=0 threshold=300 scans=1
+2026-03-05 23:32:52,401 | INFO | WATCHLIST kline_validation invalid_symbols=0 replaced_symbols=0 final_effective_batch=20
+2026-03-05 23:32:52,401 | INFO | WATCHLIST universe_n=170 batch_n=20 batch_effective=20 offset=115 source=cached excluded_prefix=0 excluded_symbol=3 excluded_regex=0 selected=ETHFIUSDT,PLUMEUSDT,JASMYUSDT,BEATUSDT,USELESSUSDT,HANAUSDT,SKYUSDT,GRASSUSDT,MORPHOUSDT,STGUSDT,USUALUSDT,FHEUSDT,ALLOUSDT,ZKUSDT,LINEAUSDT,KAITOUSDT,APEUSDT,DEEPUSDT,IMXUSDT,MAGICUSDT
+2026-03-05 23:32:53,870 | INFO | Shutdown signal received: SIGINT
+2026-03-05 23:32:53,870 | INFO | Ctrl+C received, shutting down gracefully.

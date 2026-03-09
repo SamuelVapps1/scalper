@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import argparse
 import logging
 import time
@@ -2196,8 +2197,13 @@ def main() -> int:
     args = parse_args()
     setup_logging(args.log_level)
     return run_with_args(args)
+=======
+from scalper.scalper.scanner import *  # noqa: F401,F403
+from scalper.scalper.scanner import _apply_preview_gate  # noqa: F401
+>>>>>>> b1a8f4e7765cfa90c470121f7cfaad7339fce0ee
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from scalper.scalper.scanner import main
 
+    raise SystemExit(main())
