@@ -1,0 +1,5 @@
+Set-Location "C:\Users\Admin\Desktop\scalper"
+
+# spusti venv python a 1 scan
+& ".\.venv\Scripts\python.exe" -u "bot.py" --once --log-level INFO 2>&1 `
+| Tee-Object -FilePath ".\logs\run_once.log" -Append

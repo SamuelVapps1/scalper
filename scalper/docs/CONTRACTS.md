@@ -229,3 +229,47 @@ JSON structure:
 - `run_id`: walkforward run id
 - `args`: resolved walkforward args
 - `windows`: array of per-window records (includes KPI fields and diagnostic objects like `skip_reasons`, `exit_reason_counts`, `by_setup`)
+
+## Strategy / Risk Engine Contract (Plugin Compatibility)
+
+### TradeIntent (canonical structure)
+
+Required fields for RiskEngine.evaluate():
+
+- `symbol`: str (non-empty, normalized uppercase)
+- `side`: str (`LONG` or `SHORT`)
+- `strategy_id`: str (or `strategy` / `setup` alias)
+- `timeframe`: str (e.g. `"15"`)
+- `bar_ts`: str (or `candle_ts` / `ts` alias)
+
+Optional:
+
+- `entry`, `sl`, `tp`: float
+- `confidence`: float
+- `debug`: dict
+- `meta`: dict (for sl_hint, tp_r_mult, etc.)
+
+Validation: `validate_trade_intent(intent)` returns `(ok, reason)`. If invalid, RiskEngine returns BLOCK with reason `INTENT_MISSING_SYMBOL`, `INTENT_MISSING_OR_INVALID_SIDE`, `INTENT_MISSING_STRATEGY_ID`, `INTENT_MISSING_TIMEFRAME`, or `INTENT_MISSING_BAR_TS`.
+
+### StrategyResult (plugin return shape)
+
+Strategies implement `evaluate(symbol, context) -> StrategyResult`:
+
+- `ok`: bool
+- `side`: Optional[str]
+- `reason`: str (always set when ok=False; never empty for blocks)
+- `entry`, `sl`, `tp`: Optional[float]
+- `debug`: dict (may contain `evaluated` with `final_intents`)
+- `intent`: Optional[TradeIntent] (when ok=True and intent available)
+
+When `ok=True`, `debug.evaluated.final_intents` should contain at least one dict with required TradeIntent fields. The registry enriches with `timeframe` and `bar_ts` from context when building intent.
+
+### Adding a new strategy
+
+1. Create a module in `scalper/strategies/` implementing the Strategy protocol.
+2. Implement `evaluate(symbol, context) -> StrategyResult`.
+3. When a signal triggers, return `StrategyResult(ok=True, side=..., debug={"evaluated": {"final_intents": [intent_dict], "market_snapshot": {...}}})`.
+4. Ensure each intent_dict has: `symbol`, `side`, `strategy` (or `strategy_id`), and optionally `entry`, `sl`, `tp`, `confidence`. The registry adds `timeframe` and `bar_ts` from context.
+5. Register in `scalper/strategies/registry.py` `available_strategies()`.
+
+No silent failures: every RiskEngine block has an explicit `reason` string.

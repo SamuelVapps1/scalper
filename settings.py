@@ -725,4 +725,3 @@ def debug_risk_config(logger=None):
     target_logger = logger or logging.getLogger(__name__)
     target_logger.debug("Risk config: %s", risk_data)
     return risk_data
-
