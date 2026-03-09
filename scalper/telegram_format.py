@@ -10,7 +10,6 @@ STRATEGY_HUMAN_NOTES = {
     "FORCE_TEST": "Synthetic stress-test intent",
 }
 
-
 _TRUNCATED_SUFFIX = "...(truncated)"
 
 
@@ -39,11 +38,7 @@ def _truncate_message(text: str, max_chars: int) -> str:
     return msg[:keep] + _TRUNCATED_SUFFIX
 
 
-def _compact_or_verbose(
-    lines_compact: list[str],
-    lines_verbose: list[str],
-    ctx: Dict[str, Any],
-) -> str:
+def _compact_or_verbose(lines_compact: list[str], lines_verbose: list[str], ctx: Dict[str, Any]) -> str:
     fmt = str(ctx.get("telegram_format", "compact") or "compact").strip().lower()
     compact_max = int(ctx.get("telegram_max_chars_compact", 900) or 900)
     verbose_max = int(ctx.get("telegram_max_chars_verbose", 2500) or 2500)
@@ -145,12 +140,7 @@ def format_intent_block(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
     note = str(intent.get("reason", "") or "")
     risk_reason = str(risk.get("reason", "") or "")
     human_note = STRATEGY_HUMAN_NOTES.get(str(intent.get("strategy", "")), note or "n/a")
-
-    compact = [
-        f"BLOCK[{tf}m] {symbol} {side} conf={conf}",
-        f"setup={human_note}",
-        f"risk_reason={risk_reason}",
-    ]
+    compact = [f"BLOCK[{tf}m] {symbol} {side} conf={conf}", f"setup={human_note}", f"risk_reason={risk_reason}"]
     verbose = [
         f"⛔ BLOCKED[{tf}m]",
         f"{symbol} {side} {strategy} conf={conf}",
@@ -177,7 +167,6 @@ def format_paper_close(trade: Dict[str, Any], state_after: Dict[str, Any]) -> st
     consec_losses = int(state_after.get("consec_losses", state_after.get("consecutive_losses", 0)) or 0)
     cooldown = _cooldown_text(state_after.get("cooldown_until_utc"))
     cooldown_state = _cooldown_on_off(state_after.get("cooldown_until_utc"))
-
     compact = [
         f"CLOSE[{tf}m] {symbol} {side}",
         f"pnl={pnl} reason={close_reason} bars={bars_held}",

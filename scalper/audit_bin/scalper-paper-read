@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# scalper-paper-read
+# READ-ONLY: Prints paper_state.json.
+# No writes, no mutation.
+set -euo pipefail
+SCALPER_ROOT="${SCALPER_ROOT:-/root/scalper}"
+STATE="${SCALPER_ROOT}/paper_state.json"
+if [[ -f "${STATE}" ]]; then
+  cat "${STATE}"
+else
+  echo "[scalper-paper-read] ${STATE} not found"
+fi

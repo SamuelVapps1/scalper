@@ -1,10 +1,23 @@
-# Bybit Signal Bot (DRY RUN, Alerts Only)
+# Scalper Scanner (Bybit)
 
-This project watches Bybit market candles and sends **signal alerts only**.
+Canonical runtime entrypoint:
 
-It does **not** place orders, does **not** connect to trading endpoints, and is safe for paper monitoring.
+```bash
+python -m scalper.scanner
+```
 
-Environment values are read from `.env` in the project root (same folder as `bot.py`).
+Main run commands:
+
+```bash
+python -m scalper.scanner --once --paper
+python -m scalper.scanner --loop --paper
+python -m scalper.scanner --test-telegram-formats
+python scripts/format_one_signal.py
+```
+
+`bot.py` is only a thin wrapper to `scalper.scanner.main`.
+
+Environment values are loaded from the repository root `.env`. You can override path with `ENV_PATH`.
 
 ---
 
@@ -71,7 +84,7 @@ Then open `.env` and set values, especially:
 
 ---
 
-## 4) Run on Windows (venv, step-by-step)
+## 4) Run (Windows/Linux)
 
 From PowerShell in this project folder:
 
@@ -79,7 +92,7 @@ From PowerShell in this project folder:
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python bot.py
+python -m scalper.scanner --once --paper
 ```
 
 You should see scan logs in terminal and signals in `signals_log.csv`.
@@ -93,16 +106,18 @@ To stop the bot: press `Ctrl + C`.
 Run these from PowerShell in the project root:
 
 ```powershell
-python bot.py --help
-python bot.py --test-telegram
-python bot.py --once
+python -m scalper.scanner --help
+python -m scalper.scanner --test-telegram
+python -m scalper.scanner --test-telegram-formats
+python -m scalper.scanner --once --paper
 ```
 
 Expected behavior:
 
-- `--help`: prints usage and exits (does not start scanning)
-- `--test-telegram`: sends `✅ Telegram OK (test)` and exits
-- `--once`: runs exactly one scan pass and exits
+- `--help`: prints usage and exits
+- `--test-telegram`: sends `Telegram OK (test)` and exits
+- `--test-telegram-formats`: prints enriched message formats to stdout (no send)
+- `--once --paper`: one paper scan cycle
 
 Code note:
 
@@ -150,11 +165,28 @@ Fix:
 
 ---
 
+## Server Runbook
+
+```bash
+git pull
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python -m scalper.scanner --once --paper
+python -m scalper.scanner --loop --paper
+```
+
+Optional systemd/tmux:
+- tmux: `tmux new -s scalper 'source venv/bin/activate && python -m scalper.scanner --loop --paper'`
+- systemd: run same command in service `ExecStart`.
+
 ## Project files
 
-- `bot.py` - main loop and cooldown logic
-- `bybit.py` - public Bybit kline fetch
-- `signals.py` - indicators + setup rules
+- `bot.py` - wrapper to `scalper.scanner.main`
+- `scalper/scanner.py` - canonical runtime pipeline
+- `bybit.py` - Bybit public HTTP client (retry/backoff/rate-limit pacing)
+- `watchlist.py` - market/static watchlist provider and rotation
+- `signals.py` - intent evaluation + early signals
 - `telegram_notify.py` - Telegram `sendMessage`
 - `storage.py` - CSV signal logging
 - `config.py` - loads `.env`

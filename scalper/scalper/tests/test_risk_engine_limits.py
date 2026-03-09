@@ -27,6 +27,18 @@ class _FakeStore:
         self.risk_events.append(dict(event))
 
 
+def _valid_intent(**overrides: Any) -> Dict[str, Any]:
+    base = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "strategy": "V3",
+        "timeframe": "15",
+        "bar_ts": "2026-02-27T12:00:00+00:00",
+    }
+    base.update(overrides)
+    return base
+
+
 def _settings() -> Any:
     return SimpleNamespace(
         paper_equity_usdt=1000.0,
@@ -53,7 +65,7 @@ def test_blocks_when_max_concurrent_positions_reached() -> None:
     )
     engine = RiskEngine(store.state, _settings(), store)
     verdict = engine.evaluate(
-        intent={"symbol": "ETHUSDT", "side": "LONG", "strategy": "V3"},
+        intent=_valid_intent(symbol="ETHUSDT"),
         snapshot={"equity": 1000.0, "open_positions_count": 2, "open_positions": store.state["open_positions"]},
         now=datetime(2026, 2, 27, 12, 0, tzinfo=timezone.utc),
     )
@@ -71,7 +83,7 @@ def test_daily_loss_limit_triggers_pause_until_end_of_day() -> None:
     )
     engine = RiskEngine(store.state, _settings(), store)
     verdict = engine.evaluate(
-        intent={"symbol": "BTCUSDT", "side": "LONG", "strategy": "V3"},
+        intent=_valid_intent(),
         snapshot={"equity": 988.0, "open_positions_count": 0, "open_positions": []},
         now=datetime(2026, 2, 27, 10, 0, tzinfo=timezone.utc),
     )
@@ -84,7 +96,7 @@ def test_max_dd_triggers_kill_and_persists_until_manual_reset() -> None:
     store = _FakeStore(state={"day_utc": "2026-02-27", "equity_peak": 1000.0})
     engine = RiskEngine(store.state, _settings(), store)
     v1 = engine.evaluate(
-        intent={"symbol": "BTCUSDT", "side": "LONG", "strategy": "V3"},
+        intent=_valid_intent(),
         snapshot={"equity": 850.0, "open_positions_count": 0, "open_positions": []},
         now=datetime(2026, 2, 27, 12, 0, tzinfo=timezone.utc),
     )
@@ -93,7 +105,7 @@ def test_max_dd_triggers_kill_and_persists_until_manual_reset() -> None:
     assert str(store.state.get("kill_reason", "")) == "MAX_DD"
 
     v2 = engine.evaluate(
-        intent={"symbol": "ETHUSDT", "side": "LONG", "strategy": "V3"},
+        intent=_valid_intent(symbol="ETHUSDT"),
         snapshot={"equity": 1000.0, "open_positions_count": 0, "open_positions": []},
         now=datetime(2026, 2, 27, 12, 1, tzinfo=timezone.utc),
     )
@@ -111,7 +123,7 @@ def test_cluster_btc_eth_limit_blocks_other_symbol() -> None:
     )
     engine = RiskEngine(store.state, _settings(), store)
     verdict = engine.evaluate(
-        intent={"symbol": "ETHUSDT", "side": "LONG", "strategy": "V3"},
+        intent=_valid_intent(symbol="ETHUSDT"),
         snapshot={"equity": 1000.0, "open_positions_count": 1, "open_positions": store.state["open_positions"]},
         now=datetime(2026, 2, 27, 12, 0, tzinfo=timezone.utc),
     )
