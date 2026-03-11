@@ -1,3 +1,6 @@
 requests
 python-dotenv
 pandas
+fastapi
+uvicorn
+pydantic==1.10.15

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# scalper-log-read
+# READ-ONLY: Prints tail of live_loop.log.
+# No writes, no mutation.
+set -euo pipefail
+SCALPER_ROOT="${SCALPER_ROOT:-/root/scalper}"
+LOG="${SCALPER_ROOT}/live_loop.log"
+if [[ -f "${LOG}" ]]; then
+  tail -n 500 "${LOG}"
+else
+  echo "[scalper-log-read] ${LOG} not found"
+fi
