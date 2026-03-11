@@ -69,8 +69,8 @@ def test_format_intent_allow_short_includes_entry_sl_tp():
     assert "tp=n/a" not in msg
 
 
-def test_format_intent_allow_no_entry_n_a_when_bar_close_available():
-    """When bar_close is in market_ctx but entry missing, use bar_close (no entry=n/a)."""
+def test_format_intent_allow_blocks_when_levels_missing():
+    """ALLOW formatter downgrades to BLOCK when sl/tp are unavailable."""
     from telegram_format import format_intent_allow
 
     intent = {
@@ -86,8 +86,8 @@ def test_format_intent_allow_no_entry_n_a_when_bar_close_available():
         "bar_ts_used": "2026-01-01T12:00:00+00:00",
     }
     msg = format_intent_allow(intent, risk, ctx)
-    assert "entry=n/a" not in msg
-    assert "entry=65800" in msg
+    assert msg.startswith("BLOCK[15m]")
+    assert "risk_reason=allowed" in msg
 
 
 def test_format_intent_allow_includes_recommended_sl_when_meta_present():

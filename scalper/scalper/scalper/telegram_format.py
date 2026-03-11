@@ -73,12 +73,24 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
     tp_pct = _fmt_float(market_ctx.get("tp_pct"), 2)
     qty = _fmt_float(market_ctx.get("qty"), 6)
     notional = _fmt_float(market_ctx.get("notional"), 2)
-    levels_reason = str(market_ctx.get("levels_reason", "") or "")
-    if not levels_reason:
-        if sl == "n/a" or tp == "n/a":
-            levels_reason = "levels_unavailable"
-        else:
-            levels_reason = "ok"
+    preview_status = str(market_ctx.get("preview_status", "ok") or "ok")
+    execution_status = str(market_ctx.get("execution_status", "not_opened") or "not_opened")
+    if entry == "n/a" or sl == "n/a" or tp == "n/a":
+        fallback_reason = str(risk.get("reason", "") or "PREVIEW_BUILD_FAILED")
+        return format_intent_block(
+            intent,
+            {"reason": fallback_reason},
+            {
+                "tf": tf,
+                "open_now": market_ctx.get("open_now", 0),
+                "open_max": market_ctx.get("open_max", 0),
+                "trades_today": market_ctx.get("trades_today", 0),
+                "cooldown_until_utc": market_ctx.get("cooldown_until_utc", ""),
+                "telegram_format": market_ctx.get("telegram_format", "compact"),
+                "telegram_max_chars_compact": market_ctx.get("telegram_max_chars_compact", 900),
+                "telegram_max_chars_verbose": market_ctx.get("telegram_max_chars_verbose", 2500),
+            },
+        )
     bar_ts_used = str(market_ctx.get("bar_ts_used", "") or "")
     intent_id = str(intent.get("intent_id", market_ctx.get("intent_id", "")) or "")
     note = str(intent.get("reason", "") or "")
@@ -104,7 +116,7 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
         f"setup={human_note} bias={bias or 'n/a'}{levels_str}",
         f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct}",
         f"qty={qty} notional={notional}",
-        f"levels_reason={levels_reason}",
+        f"preview_status={preview_status} execution_status={execution_status}",
         f"bar_ts={bar_ts_used}",
         f"risk open={open_now}/{open_max} trades={trades_today} cooldown={cooldown_state}",
     ]
@@ -114,7 +126,7 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
         f"break={_fmt_float(break_level) if break_level is not None else 'n/a'} retest={_fmt_float(retest_level) if retest_level is not None else 'n/a'}",
         f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct} qty={qty} notional={notional}",
         f"rec_sl={rec_sl}",
-        f"levels_reason={levels_reason}",
+        f"preview_status={preview_status} execution_status={execution_status}",
         f"bar_ts_used={bar_ts_used} intent_id={intent_id}",
         f"setup_note={note}",
         f"risk_reason={risk_reason}",
