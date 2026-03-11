@@ -561,6 +561,8 @@ def run_scan_cycle(
         format_paper_close,
     )
     from scalper.trade_preview import build_trade_preview
+    from scalper.trade_plan import build_trade_plan, TradePlan
+    from scalper.trade_ranker import rank_plans, score_trade_plan
 
     run_context: Dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -617,6 +619,12 @@ def run_scan_cycle(
     all_near_miss_candidates: List[Dict[str, Any]] = []
 
     set_defer_position_sync(True)
+    ranking_enabled = bool(getattr(settings_obj.risk, "ranking_enabled", False))
+    ranking_min_rr = float(getattr(settings_obj.risk, "ranking_min_rr", 1.0) or 1.0)
+    ranking_max_rr = float(getattr(settings_obj.risk, "ranking_max_rr", 4.0) or 4.0)
+    ranking_min_atr_pct = float(getattr(settings_obj.risk, "ranking_min_atr_pct", 0.1) or 0.1)
+    ranking_max_atr_pct = float(getattr(settings_obj.risk, "ranking_max_atr_pct", 10.0) or 10.0)
+
     for symbol in symbols_to_process:
         symbol_context: Dict[str, Any] = {
             "symbol": symbol,
@@ -699,6 +707,10 @@ def run_scan_cycle(
                             )
                         )
                         risk_state_after = load_paper_state()
+                        # Realized risk and R multiple for analytics.
+                        risk_per_unit = abs(updated.entry_price - updated.sl_price)
+                        risk_usdt = risk_per_unit * updated.qty_est if risk_per_unit > 0 else 0.0
+                        r_multiple = float(pnl_usdt) / risk_usdt if risk_usdt > 0 else None
                         close_event = {
                             "symbol": updated.symbol,
                             "side": updated.side,
@@ -709,6 +721,19 @@ def run_scan_cycle(
                             "bars_held": updated.bars_held,
                             "pnl_usdt": float(pnl_usdt),
                             "close_reason": close_reason,
+                            "entry_price": float(updated.entry_price),
+                            "sl_price": float(updated.sl_price),
+                            "tp_price": float(updated.tp_price),
+                            "notional_usdt": float(updated.notional_usdt),
+                            "qty_est": float(updated.qty_est),
+                            "risk_usdt": float(risk_usdt),
+                            "r_multiple": r_multiple,
+                            "planned_entry_price": float(getattr(updated, "planned_entry_price", updated.entry_price)),
+                            "planned_sl_price": float(getattr(updated, "planned_sl_price", updated.sl_price)),
+                            "planned_tp_price": float(getattr(updated, "planned_tp_price", updated.tp_price)),
+                            "planned_rr": float(getattr(updated, "planned_rr", 0.0) or 0.0),
+                            "leverage_recommended": float(getattr(updated, "leverage_recommended", 0.0) or 0.0),
+                            "margin_mode": str(getattr(updated, "margin_mode", "isolated") or "isolated"),
                             "status": "CLOSED",
                         }
                         closed_trades.append(close_event)
@@ -1097,6 +1122,7 @@ def run_scan_cycle(
                         meta["retest_level"] = signal.get("level_ref")
                     snap = symbol_context.get("market_snapshot", {}) or {}
                     preview: Dict[str, Any] = {}
+                    plan: Optional[TradePlan] = None
                     execution_status = "not_opened"
                     if allowed:
                         preview = build_trade_preview(
@@ -1129,16 +1155,76 @@ def run_scan_cycle(
                                 gate_reason,
                             )
                         else:
-                            logging.info(
-                                "PREVIEW built %s %s %s entry=%.8f sl=%.8f tp=%.8f atr_source=%s",
-                                intent_symbol,
-                                intent_strategy,
-                                intent_side,
-                                float(preview.get("entry", 0.0) or 0.0),
-                                float(preview.get("sl", 0.0) or 0.0),
-                                float(preview.get("tp", 0.0) or 0.0),
-                                str(preview.get("atr_source", "")),
-                            )
+                            # Build canonical trade plan on top of the preview.
+                            try:
+                                plan = build_trade_plan(
+                                    signal={
+                                        **dict(signal or {}),
+                                        "symbol": intent_symbol,
+                                        "side": intent_side,
+                                        "strategy": intent_strategy,
+                                        "timeframe": str(interval),
+                                        "confidence": float(intent_confidence),
+                                        "bar_ts_used": bar_ts_used,
+                                    },
+                                    preview=preview,
+                                    candles=candles or [],
+                                    risk_settings=settings_obj.risk,
+                                    equity_usdt=(
+                                        paper_broker.current_equity()
+                                        if paper_broker is not None
+                                        else float(
+                                            getattr(risk_autopilot, "paper_position_usdt", 20.0)
+                                            or 20.0
+                                        )
+                                    ),
+                                )
+                            except Exception as exc:
+                                plan = None
+                                allowed = False
+                                gate_reason = f"TRADE_PLAN_ERROR: {exc}"
+                                logging.exception(
+                                    "Trade plan build failed for %s %s %s: %s",
+                                    intent_symbol,
+                                    intent_strategy,
+                                    intent_side,
+                                    exc,
+                                )
+                            else:
+                                if not plan.ok or not plan.execution_ready:
+                                    allowed = False
+                                    gate_reason = str(plan.reason or "INVALID_TRADE_PLAN")
+                                    logging.warning(
+                                        "Trade plan blocked intent %s %s %s reason=%s",
+                                        intent_symbol,
+                                        intent_strategy,
+                                        intent_side,
+                                        gate_reason,
+                                    )
+                                else:
+                                    if plan.degraded:
+                                        logging.warning(
+                                            "PLAN_DEGRADED %s %s %s rr=%.3f stop_pct=%.3f lev=%.2f notes=%s",
+                                            intent_symbol,
+                                            intent_strategy,
+                                            intent_side,
+                                            float(plan.rr),
+                                            float(plan.stop_distance_pct),
+                                            float(plan.leverage_recommended),
+                                            ",".join(plan.notes),
+                                        )
+                                    logging.info(
+                                        "PLAN_OK %s %s %s entry=%.8f stop=%.8f tp=%.8f rr=%.3f lev=%.2f notional=%.4f",
+                                        intent_symbol,
+                                        intent_strategy,
+                                        intent_side,
+                                        float(plan.entry),
+                                        float(plan.stop),
+                                        float(plan.tp),
+                                        float(plan.rr),
+                                        float(plan.leverage_recommended),
+                                        float(plan.notional_est),
+                                    )
                     trade_intent = {
                         "id": str(signal.get("intent_id") or fp),
                         "ts": intent_ts,
@@ -1176,6 +1262,21 @@ def run_scan_cycle(
                         "intent_id": str(signal.get("intent_id", "")),
                         "risk": {"allowed": allowed, "reason": gate_reason},
                     }
+                    if plan is not None:
+                        plan_dict = plan.as_dict()
+                        if ranking_enabled:
+                            # Per-plan score for analytics; full ranking is done per-scan below.
+                            score, feats = score_trade_plan(
+                                plan,
+                                bias=str(signal.get("bias", "") or ""),
+                                min_rr=ranking_min_rr,
+                                max_rr=ranking_max_rr,
+                                min_atr_pct=ranking_min_atr_pct,
+                                max_atr_pct=ranking_max_atr_pct,
+                            )
+                            plan_dict["score"] = score
+                            plan_dict["score_features"] = feats
+                        final_intent_record["trade_plan"] = plan_dict
                     symbol_context["final_intents"].append(final_intent_record)
                     _remember_intent_fingerprint(
                         state=dedup_state,
@@ -1192,9 +1293,20 @@ def run_scan_cycle(
                     if allowed:
                         has_any_allow = True
                         opened_position = None
+                        preview_for_execution = dict(preview or {})
+                        if plan is not None and plan.ok and plan.execution_ready:
+                            preview_for_execution["entry"] = float(plan.entry)
+                            preview_for_execution["sl"] = float(plan.stop)
+                            preview_for_execution["tp"] = float(plan.tp)
+                            preview_for_execution["planned_entry"] = float(plan.entry)
+                            preview_for_execution["planned_sl"] = float(plan.stop)
+                            preview_for_execution["planned_tp"] = float(plan.tp)
+                            preview_for_execution["plan_rr"] = float(plan.rr)
+                            preview_for_execution["plan_leverage"] = float(plan.leverage_recommended)
+                            preview_for_execution["margin_mode"] = "isolated"
                         if paper_broker is not None:
                             pos_dict, skip_reason = paper_broker.open_from_preview(
-                                preview=preview,
+                                preview=preview_for_execution,
                                 intent_id=str(signal.get("intent_id", "")),
                                 ts=str((candles[-1] if candles else {}).get("timestamp_utc", intent_ts)),
                                 strategy=intent_strategy,
@@ -1210,7 +1322,7 @@ def run_scan_cycle(
                                 sl_atr_mult=getattr(risk_autopilot, "paper_sl_atr", 1.0),
                                 tp_atr_mult=getattr(risk_autopilot, "paper_tp_atr", 1.5),
                                 intent_id=str(signal.get("intent_id", "")),
-                                preview=preview,
+                                preview=preview_for_execution,
                             )
                         if pos_dict:
                             execution_status = "open"
@@ -1240,28 +1352,39 @@ def run_scan_cycle(
                             )
                             if telegram_token and telegram_chat_id:
                                 state_after_open = load_paper_state()
+                                open_payload = {
+                                    "symbol": opened_position.symbol,
+                                    "side": opened_position.side,
+                                    "strategy": opened_position.strategy,
+                                    "confidence": float(intent_confidence),
+                                    "entry": opened_position.entry_price,
+                                    "sl": float(plan.stop if plan is not None else preview_for_execution.get("sl", opened_position.sl_price)),
+                                    "tp": float(plan.tp if plan is not None else preview_for_execution.get("tp", opened_position.tp_price)),
+                                    "sl_pct": float(preview_for_execution.get("sl_pct", 0.0) or 0.0),
+                                    "tp_pct": float(preview_for_execution.get("tp_pct", 0.0) or 0.0),
+                                    "qty": opened_position.qty_est,
+                                    "notional": opened_position.notional_usdt,
+                                    "bar_ts_used": bar_ts_used,
+                                    "intent_id": str(
+                                        signal.get("intent_id", "")
+                                    ),
+                                    "risk_reason": gate_reason,
+                                    "note": intent_reason,
+                                    "preview_status": str(preview_for_execution.get("reason", "")),
+                                    "execution_status": execution_status,
+                                }
+                                if plan is not None:
+                                    open_payload.update(
+                                        {
+                                            "rr": float(plan.rr),
+                                            "leverage_recommended": float(plan.leverage_recommended),
+                                            "plan_degraded": bool(plan.degraded),
+                                            "resistance_1": plan.resistance_1,
+                                            "support_1": plan.support_1,
+                                        }
+                                    )
                                 open_msg = format_paper_open(
-                                    {
-                                        "symbol": opened_position.symbol,
-                                        "side": opened_position.side,
-                                        "strategy": opened_position.strategy,
-                                        "confidence": float(intent_confidence),
-                                        "entry": opened_position.entry_price,
-                                        "sl": float(preview.get("sl", opened_position.sl_price)),
-                                        "tp": float(preview.get("tp", opened_position.tp_price)),
-                                        "sl_pct": float(preview.get("sl_pct", 0.0) or 0.0),
-                                        "tp_pct": float(preview.get("tp_pct", 0.0) or 0.0),
-                                        "qty": opened_position.qty_est,
-                                        "notional": opened_position.notional_usdt,
-                                        "bar_ts_used": bar_ts_used,
-                                        "intent_id": str(
-                                            signal.get("intent_id", "")
-                                        ),
-                                        "risk_reason": gate_reason,
-                                        "note": intent_reason,
-                                        "preview_status": str(preview.get("reason", "")),
-                                        "execution_status": execution_status,
-                                    },
+                                    open_payload,
                                     {
                                         "tf": str(interval),
                                         "open_now": len(
@@ -1310,6 +1433,60 @@ def run_scan_cycle(
                                 str(skip_reason or "UNKNOWN"),
                             )
                         if telegram_token and telegram_chat_id:
+                            market_ctx = {
+                                "tf": str(interval),
+                                "entry": float(plan.entry if plan is not None else preview_for_execution.get("entry", 0.0) or 0.0),
+                                "sl": float(plan.stop if plan is not None else preview_for_execution.get("sl", 0.0) or 0.0),
+                                "tp": float(plan.tp if plan is not None else preview_for_execution.get("tp", 0.0) or 0.0),
+                                "sl_pct": float(preview_for_execution.get("sl_pct", 0.0) or 0.0),
+                                "tp_pct": float(preview_for_execution.get("tp_pct", 0.0) or 0.0),
+                                "qty": float(preview_for_execution.get("qty", 0.0) or 0.0),
+                                "notional": float(preview_for_execution.get("notional", 0.0) or 0.0),
+                                "preview_status": "ok",
+                                "execution_status": execution_status,
+                                "atr_source": str(preview_for_execution.get("atr_source", "")),
+                                "bar_ts_used": bar_ts_used,
+                                "bias": str(signal.get("bias", "") or ""),
+                                "break_level": signal.get("break_level"),
+                                "retest_level": signal.get("retest_level"),
+                                "open_now": len(
+                                    load_paper_state().get(
+                                        "open_positions", []
+                                    )
+                                    or []
+                                ),
+                                "open_max": int(
+                                    getattr(
+                                        risk_autopilot,
+                                        "max_open_positions",
+                                        0,
+                                    )
+                                    or 0
+                                ),
+                                "trades_today": int(
+                                    load_paper_state().get(
+                                        "trade_count_today", 0
+                                    )
+                                    or 0
+                                ),
+                                "cooldown_until_utc": str(
+                                    load_paper_state().get(
+                                        "cooldown_until_utc", ""
+                                    )
+                                    or ""
+                                ),
+                                **format_caps,
+                            }
+                            if plan is not None:
+                                market_ctx.update(
+                                    {
+                                        "rr": float(plan.rr),
+                                        "leverage_recommended": float(plan.leverage_recommended),
+                                        "plan_degraded": bool(plan.degraded),
+                                        "resistance_1": plan.resistance_1,
+                                        "support_1": plan.support_1,
+                                    }
+                                )
                             msg = format_intent_allow(
                                 {
                                     "symbol": intent_symbol,
@@ -1322,50 +1499,7 @@ def run_scan_cycle(
                                     ),
                                 },
                                 {"reason": gate_reason},
-                                {
-                                    "tf": str(interval),
-                                    "entry": float(preview.get("entry", 0.0) or 0.0),
-                                    "sl": float(preview.get("sl", 0.0) or 0.0),
-                                    "tp": float(preview.get("tp", 0.0) or 0.0),
-                                    "sl_pct": float(preview.get("sl_pct", 0.0) or 0.0),
-                                    "tp_pct": float(preview.get("tp_pct", 0.0) or 0.0),
-                                    "qty": float(preview.get("qty", 0.0) or 0.0),
-                                    "notional": float(preview.get("notional", 0.0) or 0.0),
-                                    "preview_status": "ok",
-                                    "execution_status": execution_status,
-                                    "atr_source": str(preview.get("atr_source", "")),
-                                    "bar_ts_used": bar_ts_used,
-                                    "bias": str(signal.get("bias", "") or ""),
-                                    "break_level": signal.get("break_level"),
-                                    "retest_level": signal.get("retest_level"),
-                                    "open_now": len(
-                                        load_paper_state().get(
-                                            "open_positions", []
-                                        )
-                                        or []
-                                    ),
-                                    "open_max": int(
-                                        getattr(
-                                            risk_autopilot,
-                                            "max_open_positions",
-                                            0,
-                                        )
-                                        or 0
-                                    ),
-                                    "trades_today": int(
-                                        load_paper_state().get(
-                                            "trade_count_today", 0
-                                        )
-                                        or 0
-                                    ),
-                                    "cooldown_until_utc": str(
-                                        load_paper_state().get(
-                                            "cooldown_until_utc", ""
-                                        )
-                                        or ""
-                                    ),
-                                    **format_caps,
-                                },
+                                market_ctx,
                             )
                             if always_notify_intents:
                                 msg = f"[ALLOW] {msg}"
