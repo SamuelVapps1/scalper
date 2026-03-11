@@ -1,0 +1,65 @@
+{
+  "tag": "exitpack_smoke",
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "days": 5,
+  "variant_str": "BE_AT_R=1;PARTIAL_TP_AT_R=1;PARTIAL_TP_PCT=0.5;TIME_STOP_BARS=6;TIME_STOP_MIN_R=0.3",
+  "variant_params": {
+    "BE_AT_R": true,
+    "PARTIAL_TP_AT_R": true,
+    "PARTIAL_TP_PCT": 0.5,
+    "TIME_STOP_BARS": 6,
+    "TIME_STOP_MIN_R": 0.3
+  },
+  "baseline": {
+    "PF": 999.0,
+    "maxDD": 0.0,
+    "winrate": 100.0,
+    "winrate_roundtrip": 100.0,
+    "winrate_fill": 100.0,
+    "trades_per_day": 1.6,
+    "fills_per_day": 1.6,
+    "entries_per_day": 1.6,
+    "avgR": 0.8836,
+    "trades": 8,
+    "entries_count": 8,
+    "closes_count": 8,
+    "partial_closes_count": 0,
+    "total_fills_count": 8,
+    "run_id": "986355f4f9bb"
+  },
+  "variant": {
+    "PF": 49.6731,
+    "maxDD": 0.18,
+    "winrate": 92.85714285714286,
+    "winrate_roundtrip": 87.5,
+    "winrate_fill": 92.85714285714286,
+    "trades_per_day": 1.6,
+    "fills_per_day": 2.8,
+    "entries_per_day": 1.6,
+    "avgR": 0.6149,
+    "trades": 14,
+    "entries_count": 8,
+    "closes_count": 8,
+    "partial_closes_count": 6,
+    "total_fills_count": 14,
+    "run_id": "06fe2f40eaa8"
+  },
+  "diff": {
+    "PF": -949.3269,
+    "maxDD": 0.18,
+    "winrate": -7.14,
+    "winrate_roundtrip": -12.5,
+    "winrate_fill": -7.14,
+    "trades_per_day": 0.0,
+    "fills_per_day": 1.2,
+    "entries_per_day": 0.0,
+    "avgR": -0.2687,
+    "trades": 6,
+    "entries_count": 0,
+    "closes_count": 0,
+    "partial_closes_count": 6,
+    "total_fills_count": 6
+  }
+}

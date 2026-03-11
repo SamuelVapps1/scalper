@@ -3,7 +3,10 @@ Indicators helper: EMA and ATR (Wilder). Deterministic, DRY RUN only.
 """
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
+
+_log = logging.getLogger(__name__)
 
 
 def ema(values: List[float], period: int) -> List[float]:
@@ -43,6 +46,54 @@ def atr_wilder(
     for idx in range(period + 1, n):
         atr_value = ((atr_value * (period - 1)) + tr[idx]) / period
         out[idx] = atr_value
+    return out
+
+
+def safe_atr(
+    high: List[float],
+    low: List[float],
+    close: List[float],
+    period: int = 14,
+    fallback_last: Optional[float] = None,
+) -> List[Optional[float]]:
+    """
+    ATR with fallback: uses atr_wilder; if result is None or empty at current index,
+    recomputes from last `period` candles (simple mean of TR), then falls back to fallback_last.
+    """
+    out = atr_wilder(high, low, close, period)
+    n = len(close)
+    prev_valid: Optional[float] = fallback_last
+    for i in range(n):
+        val = out[i] if i < len(out) else None
+        if val is not None and val > 0:
+            prev_valid = float(val)
+            continue
+        # Recompute from last period candles
+        start = max(0, i - period)
+        slice_high = high[start : i + 1]
+        slice_low = low[start : i + 1]
+        slice_close = close[start : i + 1]
+        if len(slice_high) >= 2 and len(slice_high) == len(slice_low) == len(slice_close):
+            tr_list = [abs(slice_high[0] - slice_low[0])]
+            for j in range(1, len(slice_high)):
+                tr_list.append(
+                    max(
+                        abs(slice_high[j] - slice_low[j]),
+                        abs(slice_high[j] - slice_close[j - 1]),
+                        abs(slice_low[j] - slice_close[j - 1]),
+                    )
+                )
+            local_atr = sum(tr_list) / len(tr_list) if tr_list else None
+            if local_atr is not None and local_atr > 0:
+                out[i] = local_atr
+                prev_valid = local_atr
+                if fallback_last is None and i >= period:
+                    _log.warning("ATR fallback used at index %d (local recompute)", i)
+                continue
+        if prev_valid is not None and prev_valid > 0:
+            out[i] = prev_valid
+            if i >= period:
+                _log.debug("ATR fallback used at index %d (previous valid)", i)
     return out
 
 

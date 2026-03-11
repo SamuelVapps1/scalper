@@ -1,0 +1,15 @@
+{
+  "PF": 0.5319,
+  "maxDD": -16.75,
+  "winrate": 15.16,
+  "winrate_roundtrip": 5.66,
+  "winrate_fill": 15.16,
+  "trades_per_day": 2.14,
+  "entries_per_day": 0.0,
+  "avgR": 0.0564,
+  "trades": 30,
+  "entries_count": 0,
+  "closes_count": 0,
+  "partial_closes_count": 30,
+  "total_fills_count": 30
+}

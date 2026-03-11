@@ -1,0 +1,34 @@
+{
+  "tag": "smoke_14d_no_warm",
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "days": 14,
+  "variant": {
+    "PF": 1.1039,
+    "maxDD": 5.92,
+    "winrate": 56.00000000000001,
+    "trades_per_day": 1.79,
+    "avgR": 0.2132,
+    "trades": 25,
+    "run_id": "e1b4728b473a"
+  },
+  "variant_params": {},
+  "baseline": {
+    "PF": 1.1039,
+    "maxDD": 5.92,
+    "winrate": 56.00000000000001,
+    "trades_per_day": 1.79,
+    "avgR": 0.2132,
+    "trades": 25,
+    "run_id": "62d56f07b104"
+  },
+  "diff": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "trades_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0
+  }
+}

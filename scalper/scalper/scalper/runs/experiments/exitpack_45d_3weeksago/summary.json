@@ -1,0 +1,41 @@
+{
+  "tag": "exitpack_45d_3weeksago",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "days": 45,
+  "variant": {
+    "PF": 2.5142,
+    "maxDD": 12.75,
+    "winrate": 73.03664921465969,
+    "trades_per_day": 8.49,
+    "avgR": 0.2758,
+    "trades": 382,
+    "run_id": "9bf156133a8e"
+  },
+  "variant_params": {
+    "BE_AT_R": 1.0,
+    "PARTIAL_TP_AT_R": 1.0,
+    "PARTIAL_TP_PCT": 0.5,
+    "TIME_STOP_BARS": 8,
+    "TIME_STOP_MIN_R": 0.3
+  },
+  "baseline": {
+    "PF": 2.3359,
+    "maxDD": 18.82,
+    "winrate": 68.93617021276596,
+    "trades_per_day": 5.22,
+    "avgR": 0.5205,
+    "trades": 235,
+    "run_id": "058706d83ea1"
+  },
+  "diff": {
+    "PF": 0.1783,
+    "maxDD": -6.07,
+    "winrate": 4.1,
+    "trades_per_day": 3.27,
+    "avgR": -0.2447,
+    "trades": 147
+  }
+}
