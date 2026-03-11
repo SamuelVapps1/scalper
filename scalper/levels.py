@@ -26,7 +26,7 @@ def _parse_overrides(raw: str) -> Dict[str, float]:
             return {}
         return {str(k).strip().upper(): float(v) for k, v in d.items() if v is not None}
     except (json.JSONDecodeError, TypeError, ValueError):
-        _log.debug("levels: invalid overrides json %s", raw[:80])
+        _log.debug("levels: invalid overrides json %s", raw[:80] if raw else "")
         return {}
 
 
