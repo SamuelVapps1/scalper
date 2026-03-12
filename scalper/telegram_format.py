@@ -92,6 +92,9 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
     risk_reason = str(risk.get("reason", "") or "")
     meta = intent.get("meta") if isinstance(intent.get("meta"), dict) else {}
     rec_sl = _fmt_float(meta.get("recommended_sl_price")) if meta else "n/a"
+    rr = _fmt_float(market_ctx.get("rr"), 2)
+    lev = _fmt_float(market_ctx.get("leverage_recommended"), 2)
+    plan_degraded = bool(market_ctx.get("plan_degraded", False))
     open_now = int(market_ctx.get("open_now", 0) or 0)
     open_max = int(market_ctx.get("open_max", 0) or 0)
     trades_today = int(market_ctx.get("trades_today", 0) or 0)
@@ -105,12 +108,16 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
         break_s = _fmt_float(break_level) if break_level is not None else "n/a"
         retest_s = _fmt_float(retest_level) if retest_level is not None else "n/a"
         levels_str = f" break={break_s} retest={retest_s}"
+    resistance_1 = _fmt_float(market_ctx.get("resistance_1")) if market_ctx.get("resistance_1") is not None else "n/a"
+    support_1 = _fmt_float(market_ctx.get("support_1")) if market_ctx.get("support_1") is not None else "n/a"
+    plan_status = "DEGRADED" if plan_degraded else "OK"
 
     compact = [
         f"ALLOW[{tf}m] {symbol} {side} conf={conf}",
         f"setup={human_note} bias={bias or 'n/a'}{levels_str}",
-        f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct}",
-        f"qty={qty} notional={notional}",
+        f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct} rr={rr}",
+        f"qty={qty} notional={notional} lev={lev}",
+        f"R1={resistance_1} S1={support_1} plan={plan_status}",
         f"preview_status={preview_status} execution_status={execution_status}",
         f"bar_ts={bar_ts_used}",
         f"risk open={open_now}/{open_max} trades={trades_today} cooldown={cooldown_state}",
@@ -120,6 +127,7 @@ def format_intent_allow(intent: Dict[str, Any], risk: Dict[str, Any], market_ctx
         f"{symbol} {side} {strategy} conf={conf} bias={bias or 'n/a'}",
         f"break={_fmt_float(break_level) if break_level is not None else 'n/a'} retest={_fmt_float(retest_level) if retest_level is not None else 'n/a'}",
         f"entry={entry} sl={sl} tp={tp} sl%={sl_pct} tp%={tp_pct} qty={qty} notional={notional}",
+        f"rr={rr} lev={lev} plan={plan_status} R1={resistance_1} S1={support_1}",
         f"rec_sl={rec_sl}",
         f"preview_status={preview_status} execution_status={execution_status}",
         f"bar_ts_used={bar_ts_used} intent_id={intent_id}",
