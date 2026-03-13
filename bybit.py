@@ -89,26 +89,67 @@ def _do_json_request(url: str, params: Dict[str, Any], timeout: int = 20) -> Dic
     return _request_json_with_retry(path=path, params=params, timeout=timeout)
 
 
-def fetch_klines(symbol: str, interval: str, limit: int) -> List[Dict[str, float]]:
+def _to_bybit_interval(tf) -> str:
+    s = str(tf).strip().lower()
+
+    alias_map = {
+        "1": "1",
+        "3": "3",
+        "5": "5",
+        "15": "15",
+        "30": "30",
+        "60": "60",
+        "120": "120",
+        "240": "240",
+        "360": "360",
+        "720": "720",
+        "d": "D",
+        "1d": "D",
+        "w": "W",
+        "1w": "W",
+        "m": "M",
+    }
+
+    if s.endswith("m") and s[:-1].isdigit():
+        s = s[:-1]
+
+    if s in alias_map:
+        return alias_map[s]
+
+    return str(int(s))
+
+
+def fetch_klines(symbol: str, interval: str, limit: int = 1000, start_ms=None, end_ms=None):
+    params: Dict[str, Any] = {
+        "category": "linear",
+        "symbol": str(symbol).upper(),
+        "interval": str(interval),
+        "limit": str(max(1, min(1000, int(limit)))),
+    }
+
+    if start_ms is not None:
+        params["start"] = int(start_ms)
+
+    if end_ms is not None:
+        params["end"] = int(end_ms)
+
     payload = _request_json_with_retry(
         path="/v5/market/kline",
-        params={
-            "category": "linear",
-            "symbol": str(symbol).upper(),
-            "interval": str(interval),
-            "limit": str(max(1, min(1000, int(limit)))),
-        },
+        params=params,
         timeout=15,
     )
     rows = payload.get("result", {}).get("list", []) or []
     ordered = list(reversed(rows))
+
     candles: List[Dict[str, float]] = []
     for item in ordered:
         ts_ms = int(item[0])
         candles.append(
             {
                 "timestamp": ts_ms,
-                "timestamp_utc": datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).isoformat(),
+                "timestamp_utc": datetime.fromtimestamp(
+                    ts_ms / 1000.0, tz=timezone.utc
+                ).isoformat(),
                 "open": float(item[1]),
                 "high": float(item[2]),
                 "low": float(item[3]),
