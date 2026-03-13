@@ -52,5 +52,5 @@ class StrategyEngine:
             context=plugin_context,
             strategies=self._enabled_strategies,
         )
-        return strategy_result_to_evaluated(plugin_result), plugin_result
+        return strategy_result_to_evaluated(plugin_result, context=plugin_context), plugin_result
 

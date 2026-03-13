@@ -1,0 +1,40 @@
+{
+  "tag": "smoke_exitpack_3d",
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "days": 3,
+  "variant": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "trades_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0,
+    "run_id": "dc2b299d082d"
+  },
+  "variant_params": {
+    "BE_AT_R": 1.0,
+    "PARTIAL_TP_AT_R": 1.0,
+    "PARTIAL_TP_PCT": 0.5,
+    "TIME_STOP_BARS": 8,
+    "TIME_STOP_MIN_R": 0.3
+  },
+  "baseline": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "trades_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0,
+    "run_id": "508f09d2a0d3"
+  },
+  "diff": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "trades_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0
+  }
+}

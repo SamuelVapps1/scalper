@@ -1,0 +1,37 @@
+{
+  "tag": "exp_buf005",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "days": 14,
+  "variant": {
+    "PF": 0.9742,
+    "maxDD": 26.16,
+    "winrate": 54.0,
+    "trades_per_day": 3.57,
+    "avgR": 0.1882,
+    "trades": 50,
+    "run_id": "2bd9bc689cc6"
+  },
+  "variant_params": {
+    "BREAKOUT_BUFFER_ATR": 0.05
+  },
+  "baseline": {
+    "PF": 1.0034,
+    "maxDD": 27.37,
+    "winrate": 53.84615384615385,
+    "trades_per_day": 3.71,
+    "avgR": 0.1836,
+    "trades": 52,
+    "run_id": "9e6eb14eca7d"
+  },
+  "diff": {
+    "PF": -0.0292,
+    "maxDD": -1.21,
+    "winrate": 0.15,
+    "trades_per_day": -0.14,
+    "avgR": 0.0046,
+    "trades": -2
+  }
+}

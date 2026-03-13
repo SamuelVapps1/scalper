@@ -1,0 +1,55 @@
+{
+  "tag": "smoke_test_patch",
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "days": 3,
+  "variant": {
+    "PF": 999.0,
+    "maxDD": 0.0,
+    "winrate": 100.0,
+    "winrate_roundtrip": 100.0,
+    "winrate_fill": 100.0,
+    "trades_per_day": 0.33,
+    "entries_per_day": 0.33,
+    "avgR": 0.0,
+    "trades": 1,
+    "entries_count": 1,
+    "closes_count": 1,
+    "partial_closes_count": 0,
+    "total_fills_count": 1,
+    "run_id": "e2ae4303b38e"
+  },
+  "variant_params": {},
+  "baseline": {
+    "PF": 999.0,
+    "maxDD": 0.0,
+    "winrate": 100.0,
+    "winrate_roundtrip": 100.0,
+    "winrate_fill": 100.0,
+    "trades_per_day": 0.33,
+    "entries_per_day": 0.33,
+    "avgR": 0.0,
+    "trades": 1,
+    "entries_count": 1,
+    "closes_count": 1,
+    "partial_closes_count": 0,
+    "total_fills_count": 1,
+    "run_id": "e2ae4303b38e"
+  },
+  "diff": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "winrate_roundtrip": 0.0,
+    "winrate_fill": 0.0,
+    "trades_per_day": 0.0,
+    "entries_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0,
+    "entries_count": 0,
+    "closes_count": 0,
+    "partial_closes_count": 0,
+    "total_fills_count": 0
+  }
+}
