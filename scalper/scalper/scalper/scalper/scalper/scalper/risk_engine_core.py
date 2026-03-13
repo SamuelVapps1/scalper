@@ -140,7 +140,11 @@ class RiskEngine:
                 details={"trade_count_today": trade_count_today, "max_trades_day": max_trades_day},
             )
 
-        min_between_global = int(getattr(self.settings, "min_seconds_between_trades", 180) or 180)
+        base_min_global = int(getattr(self.settings, "min_seconds_between_trades", 180) or 180)
+        base_min_symbol = int(getattr(self.settings, "min_seconds_between_symbol_trades", 900) or 900)
+        min_between_global = self._effective_min_between_global(base_min_global, intent)
+        min_between_symbol = self._effective_min_between_symbol(base_min_symbol, intent)
+
         last_trade_ts = int(self.state.get("last_trade_ts", 0) or 0)
         if min_between_global > 0 and last_trade_ts > 0 and (now_ts - last_trade_ts) < min_between_global:
             return self._verdict(
@@ -152,7 +156,6 @@ class RiskEngine:
                 emit_event=False,
             )
 
-        min_between_symbol = int(getattr(self.settings, "min_seconds_between_symbol_trades", 900) or 900)
         last_trade_symbol_ts = dict(self.state.get("last_trade_symbol_ts", {}) or {})
         last_symbol_ts = int(last_trade_symbol_ts.get(sym, 0) or 0)
         if min_between_symbol > 0 and last_symbol_ts > 0 and (now_ts - last_symbol_ts) < min_between_symbol:
@@ -181,6 +184,28 @@ class RiskEngine:
         last_trade_symbol_ts[sym] = now_ts
         self.state["last_trade_symbol_ts"] = last_trade_symbol_ts
         return self._verdict("ALLOW", "OK", intent, now_ts, details={"equity": equity}, emit_event=False)
+
+    def _effective_min_between_global(self, base_seconds: int, intent: Dict[str, Any]) -> int:
+        mult = float(getattr(self.settings, "cooldown_consecutive_loss_mult", 0.5) or 0.5)
+        consec = int(self.state.get("consecutive_losses", 0) or 0)
+        effective = base_seconds * (1.0 + mult * consec)
+        conf = float(intent.get("confidence", 0.0) or 0.0)
+        high_conf = float(getattr(self.settings, "cooldown_high_conf_min", 0.68) or 0.68)
+        reduce_pct = float(getattr(self.settings, "cooldown_high_conf_reduce_pct", 0.20) or 0.20)
+        if consec == 0 and conf >= high_conf and reduce_pct > 0:
+            effective = effective * (1.0 - reduce_pct)
+        return max(0, int(effective))
+
+    def _effective_min_between_symbol(self, base_seconds: int, intent: Dict[str, Any]) -> int:
+        mult = float(getattr(self.settings, "cooldown_consecutive_loss_mult", 0.5) or 0.5)
+        consec = int(self.state.get("consecutive_losses", 0) or 0)
+        effective = base_seconds * (1.0 + mult * consec)
+        conf = float(intent.get("confidence", 0.0) or 0.0)
+        high_conf = float(getattr(self.settings, "cooldown_high_conf_min", 0.68) or 0.68)
+        reduce_pct = float(getattr(self.settings, "cooldown_high_conf_reduce_pct", 0.20) or 0.20)
+        if consec == 0 and conf >= high_conf and reduce_pct > 0:
+            effective = effective * (1.0 - reduce_pct)
+        return max(0, int(effective))
 
     def assess(self, intent: Dict[str, Any]) -> RiskVerdict:
         return self.evaluate(intent=intent, snapshot=None, state=None, now=None)

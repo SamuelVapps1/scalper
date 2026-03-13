@@ -1,0 +1,36 @@
+{
+  "tag": "test_exp",
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "days": 1,
+  "variant": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "trades_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0,
+    "run_id": "3bc11506f32b"
+  },
+  "variant_params": {
+    "USE_5M_CONFIRM": false
+  },
+  "baseline": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "trades_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0,
+    "run_id": "9ffe67303cd0"
+  },
+  "diff": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "trades_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0
+  }
+}
