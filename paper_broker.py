@@ -96,6 +96,13 @@ class PaperBroker:
             "preview_reason": str(preview.get("reason", "")),
             "atr_source": str(preview.get("atr_source", "")),
             "bar_ts_used": str(preview.get("bar_ts_used", "")),
+            # Planned vs actual (from canonical trade plan, if present on preview).
+            "planned_entry_price": float(preview.get("planned_entry", entry_preview)),
+            "planned_sl_price": float(preview.get("planned_sl", sl_price)),
+            "planned_tp_price": float(preview.get("planned_tp", tp_price)),
+            "planned_rr": float(preview.get("plan_rr", 0.0) or 0.0),
+            "leverage_recommended": float(preview.get("plan_leverage", 0.0) or 0.0),
+            "margin_mode": str(preview.get("margin_mode", "isolated") or "isolated"),
         }
         return (pos, None)
 
