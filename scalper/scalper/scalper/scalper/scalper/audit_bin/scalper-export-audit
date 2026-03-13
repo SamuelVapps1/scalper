@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# scalper-export-audit
+# READ-ONLY: Runs export_readonly_audit.sh to create timestamped audit pack.
+# Writes only to audit_exports/<timestamp>/ (export output). No runtime mutation.
+set -euo pipefail
+SCALPER_ROOT="${SCALPER_ROOT:-/root/scalper}"
+SCRIPT="${SCALPER_ROOT}/export_readonly_audit.sh"
+if [[ -x "${SCRIPT}" ]]; then
+  SCALPER_ROOT="${SCALPER_ROOT}" bash "${SCRIPT}"
+else
+  echo "[scalper-export-audit] ${SCRIPT} not found or not executable"
+  exit 1
+fi
