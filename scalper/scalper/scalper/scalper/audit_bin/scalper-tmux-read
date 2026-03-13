@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# scalper-tmux-read
+# READ-ONLY: Captures tmux pane output from session "scalper".
+# No send-keys, no kill-session, no mutation.
+set -euo pipefail
+if tmux has-session -t scalper 2>/dev/null; then
+  tmux capture-pane -t scalper -p -S -5000 2>/dev/null || echo "[scalper-tmux-read] capture failed"
+else
+  echo "[scalper-tmux-read] session 'scalper' not found"
+fi

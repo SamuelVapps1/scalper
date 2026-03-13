@@ -1,0 +1,2 @@
+"""Scalper package."""
+
