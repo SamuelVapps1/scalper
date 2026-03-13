@@ -180,6 +180,37 @@ Optional systemd/tmux:
 - tmux: `tmux new -s scalper 'source venv/bin/activate && python -m scalper.scanner --loop --paper'`
 - systemd: run same command in service `ExecStart`.
 
+---
+
+## Live / Testnet Execution (experimental)
+
+Execution is disabled by default. To run **tiny** smoke trades on Bybit v5:
+
+Required env:
+
+- `BYBIT_API_KEY`, `BYBIT_API_SECRET`
+- `BYBIT_BASE_URL` (optional; default mainnet `https://api.bybit.com`, testnet `https://api-testnet.bybit.com`)
+- `EXECUTION_MODE` = `paper` \| `testnet` \| `live`
+- `KILL_SWITCH` = `0` (set `1` to hard-block any execution)
+- `EXPLICIT_CONFIRM_EXECUTION` (see `EXECUTION_MODE` docs)
+- `LIVE_MICRO_USDT` = `2` (default tiny notional per smoke order)
+
+Smoke tool:
+
+- Dry preview (no order):
+
+  - `python -m scripts.live_smoke --symbol BTCUSDT`
+
+- Testnet micro-order (requires `EXECUTION_MODE=testnet` and correct keys):
+
+  - `python -m scripts.live_smoke --symbol BTCUSDT --auto-exec`
+
+Rollback:
+
+- Set `EXECUTION_MODE=paper` **or**
+- Set `KILL_SWITCH=1` **or**
+- Stop the scanner loop process.
+
 ## Project files
 
 - `bot.py` - wrapper to `scalper.scanner.main`
