@@ -1,0 +1,37 @@
+{
+  "tag": "sweep_atr30",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "days": 14,
+  "variant": {
+    "PF": 1.0054,
+    "maxDD": 13.25,
+    "winrate": 50.0,
+    "trades_per_day": 1.71,
+    "avgR": 0.1288,
+    "trades": 24,
+    "run_id": "1c2dcfa10cbb"
+  },
+  "variant_params": {
+    "ATR_REGIME_MIN_PCTL": 30
+  },
+  "baseline": {
+    "PF": 1.0034,
+    "maxDD": 27.37,
+    "winrate": 53.84615384615385,
+    "trades_per_day": 3.71,
+    "avgR": 0.1836,
+    "trades": 52,
+    "run_id": "9e6eb14eca7d"
+  },
+  "diff": {
+    "PF": 0.002,
+    "maxDD": -14.12,
+    "winrate": -3.85,
+    "trades_per_day": -2.0,
+    "avgR": -0.0548,
+    "trades": -28
+  }
+}

@@ -170,12 +170,17 @@ def update_and_maybe_close(
     risk_per_unit = abs(entry - sl)
     atr_val = max(0.0, position.atr_at_entry)
 
-    # Update max_favorable_price: LONG = max high, SHORT = min low
+    # Update max_favorable_price and min_adverse_price:
+    # - LONG: favorable = higher prices, adverse = lower prices
+    # - SHORT: favorable = lower prices, adverse = higher prices
     mfp = position.max_favorable_price
+    min_adv = position.min_adverse_price
     if side == "LONG":
         mfp = max(mfp, high) if mfp > 0 else high
+        min_adv = min(min_adv, low) if min_adv > 0 else low
     else:
         mfp = min(mfp, low) if (mfp > 0 and low > 0) else (low if low > 0 else mfp)
+        min_adv = max(min_adv, high) if min_adv > 0 else high
 
     # Current R using close (or high/low for intra-bar)
     if side == "LONG":

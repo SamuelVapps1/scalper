@@ -1,5 +1,36 @@
 {
-  "open_positions": [],
+  "open_positions": [
+    {
+      "intent_id": "",
+      "symbol": "LINKUSDT",
+      "side": "LONG",
+      "strategy": "RANGE_BREAKOUT_RETEST_GO",
+      "entry_price": 9.308930799999999,
+      "preview_entry_price": 9.308,
+      "notional_usdt": 112.24310302659208,
+      "qty_est": 12.057571963752496,
+      "atr_at_entry": 0.02398556959861481,
+      "sl_price": 9.284014430401385,
+      "tp_price": 9.343978354397922,
+      "entry_ts": "2026-03-13T10:00:00+00:00",
+      "last_ts": "2026-03-13T10:00:00+00:00",
+      "bars_held": 0,
+      "max_favorable_price": 0.0,
+      "be_moved": false,
+      "partial_taken": false,
+      "status": "OPEN",
+      "fee_pct": 0.055,
+      "preview_reason": "OK",
+      "atr_source": "market_snapshot_atr14",
+      "bar_ts_used": "2026-03-13T10:00:00+00:00",
+      "planned_entry_price": 9.308,
+      "planned_sl_price": 9.284014430401385,
+      "planned_tp_price": 9.343978354397922,
+      "planned_rr": 1.5,
+      "leverage_recommended": 1.0,
+      "margin_mode": "isolated"
+    }
+  ],
   "closed_trades": [
     {
       "symbol": "ETHUSDT",
@@ -118,8 +149,8 @@
   "last_scan_ts": 1771875320,
   "selected_watchlist": [],
   "selected_watchlist_mode": "static",
-  "day_utc": "2026-03-08",
-  "trade_count_today": 6,
+  "day_utc": "2026-03-13",
+  "trade_count_today": 2,
   "cooldown_until_utc": "",
   "intent_fingerprints": [
     {
@@ -284,11 +315,25 @@
       "bar_ts": "2026-03-08T09:15:00+00:00"
     },
     {
+      "fingerprint": "XRPUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "XRPUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
       "fingerprint": "BTCUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-08T09:25:00+00:00",
       "symbol": "BTCUSDT",
       "strategy": "RANGE_BREAKOUT_RETEST_GO",
       "side": "LONG",
       "bar_ts": "2026-03-08T09:25:00+00:00"
+    },
+    {
+      "fingerprint": "BTCUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "BTCUSDT",
+      "strategy": "RANGE_BREAKOUT_RETEST_GO",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
     },
     {
       "fingerprint": "BTCUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-08T09:50:00+00:00",
@@ -298,11 +343,25 @@
       "bar_ts": "2026-03-08T09:50:00+00:00"
     },
     {
+      "fingerprint": "BTCUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "BTCUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
       "fingerprint": "SUIUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-08T09:50:00+00:00",
       "symbol": "SUIUSDT",
       "strategy": "TREND_PULLBACK_EMA20",
       "side": "LONG",
       "bar_ts": "2026-03-08T09:50:00+00:00"
+    },
+    {
+      "fingerprint": "SUIUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "SUIUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
     },
     {
       "fingerprint": "NEARUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-08T09:50:00+00:00",
@@ -324,6 +383,76 @@
       "strategy": "RANGE_BREAKOUT_RETEST_GO",
       "side": "LONG",
       "bar_ts": "2026-03-08T13:50:00+00:00"
+    },
+    {
+      "fingerprint": "SOLUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "SOLUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
+      "fingerprint": "XRPUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "XRPUSDT",
+      "strategy": "RANGE_BREAKOUT_RETEST_GO",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
+      "fingerprint": "DOGEUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "DOGEUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
+      "fingerprint": "DOGEUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "DOGEUSDT",
+      "strategy": "RANGE_BREAKOUT_RETEST_GO",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
+      "fingerprint": "ADAUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "ADAUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
+      "fingerprint": "LINKUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-13T10:00:00+00:00",
+      "symbol": "LINKUSDT",
+      "strategy": "RANGE_BREAKOUT_RETEST_GO",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T10:00:00+00:00"
+    },
+    {
+      "fingerprint": "AAVEUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T10:00:00+00:00",
+      "symbol": "AAVEUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T10:00:00+00:00"
+    },
+    {
+      "fingerprint": "AAVEUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-13T10:00:00+00:00",
+      "symbol": "AAVEUSDT",
+      "strategy": "RANGE_BREAKOUT_RETEST_GO",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T10:00:00+00:00"
+    },
+    {
+      "fingerprint": "AVAXUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-13T10:00:00+00:00",
+      "symbol": "AVAXUSDT",
+      "strategy": "RANGE_BREAKOUT_RETEST_GO",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T10:00:00+00:00"
+    },
+    {
+      "fingerprint": "ENAUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T10:00:00+00:00",
+      "symbol": "ENAUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T10:00:00+00:00"
     }
   ],
   "early_alert_keys": [],
@@ -337,12 +466,13 @@
   "pause_until_ts": 0,
   "pause_reason": "",
   "kill_reason": "",
-  "last_trade_ts": 1772978081,
+  "last_trade_ts": 1773396292,
   "last_trade_symbol_ts": {
     "BEATUSDT": 1772941946,
     "XRPUSDT": 1772961366,
-    "BTCUSDT": 1772963439,
+    "BTCUSDT": 1773392652,
     "SIGNUSDT": 1772964624,
-    "RESOLVUSDT": 1772978081
+    "RESOLVUSDT": 1772978081,
+    "LINKUSDT": 1773396292
   }
 }
