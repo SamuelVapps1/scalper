@@ -118,8 +118,8 @@
   "last_scan_ts": 1771875320,
   "selected_watchlist": [],
   "selected_watchlist_mode": "static",
-  "day_utc": "2026-03-08",
-  "trade_count_today": 6,
+  "day_utc": "2026-03-13",
+  "trade_count_today": 1,
   "cooldown_until_utc": "",
   "intent_fingerprints": [
     {
@@ -284,11 +284,25 @@
       "bar_ts": "2026-03-08T09:15:00+00:00"
     },
     {
+      "fingerprint": "XRPUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "XRPUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
       "fingerprint": "BTCUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-08T09:25:00+00:00",
       "symbol": "BTCUSDT",
       "strategy": "RANGE_BREAKOUT_RETEST_GO",
       "side": "LONG",
       "bar_ts": "2026-03-08T09:25:00+00:00"
+    },
+    {
+      "fingerprint": "BTCUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "BTCUSDT",
+      "strategy": "RANGE_BREAKOUT_RETEST_GO",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
     },
     {
       "fingerprint": "BTCUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-08T09:50:00+00:00",
@@ -298,11 +312,25 @@
       "bar_ts": "2026-03-08T09:50:00+00:00"
     },
     {
+      "fingerprint": "BTCUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "BTCUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
       "fingerprint": "SUIUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-08T09:50:00+00:00",
       "symbol": "SUIUSDT",
       "strategy": "TREND_PULLBACK_EMA20",
       "side": "LONG",
       "bar_ts": "2026-03-08T09:50:00+00:00"
+    },
+    {
+      "fingerprint": "SUIUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "SUIUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
     },
     {
       "fingerprint": "NEARUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-08T09:50:00+00:00",
@@ -324,6 +352,41 @@
       "strategy": "RANGE_BREAKOUT_RETEST_GO",
       "side": "LONG",
       "bar_ts": "2026-03-08T13:50:00+00:00"
+    },
+    {
+      "fingerprint": "SOLUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "SOLUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
+      "fingerprint": "XRPUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "XRPUSDT",
+      "strategy": "RANGE_BREAKOUT_RETEST_GO",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
+      "fingerprint": "DOGEUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "DOGEUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
+      "fingerprint": "DOGEUSDT|RANGE_BREAKOUT_RETEST_GO|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "DOGEUSDT",
+      "strategy": "RANGE_BREAKOUT_RETEST_GO",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
+    },
+    {
+      "fingerprint": "ADAUSDT|TREND_PULLBACK_EMA20|LONG|2026-03-13T09:00:00+00:00",
+      "symbol": "ADAUSDT",
+      "strategy": "TREND_PULLBACK_EMA20",
+      "side": "LONG",
+      "bar_ts": "2026-03-13T09:00:00+00:00"
     }
   ],
   "early_alert_keys": [],
@@ -337,11 +400,11 @@
   "pause_until_ts": 0,
   "pause_reason": "",
   "kill_reason": "",
-  "last_trade_ts": 1772978081,
+  "last_trade_ts": 1773392652,
   "last_trade_symbol_ts": {
     "BEATUSDT": 1772941946,
     "XRPUSDT": 1772961366,
-    "BTCUSDT": 1772963439,
+    "BTCUSDT": 1773392652,
     "SIGNUSDT": 1772964624,
     "RESOLVUSDT": 1772978081
   }

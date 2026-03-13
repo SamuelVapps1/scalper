@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from scalper.models import RiskVerdict, TradeRecord
+from scalper.models import RiskVerdict, TradeRecord, validate_trade_intent
 
 
 class RiskEngine:
@@ -30,6 +30,10 @@ class RiskEngine:
         now_ts = int(now_dt.timestamp())
         self._ensure_state_keys(now_ts)
         self._ensure_daily_rollover(now_ts)
+
+        valid, block_reason = validate_trade_intent(intent)
+        if not valid:
+            return self._verdict("BLOCK", block_reason, intent, now_ts, details={"block_reason": block_reason})
 
         sym = str(intent.get("symbol", "") or "").strip().upper()
         snapshot_ok = isinstance(snapshot, dict) and bool(snapshot)

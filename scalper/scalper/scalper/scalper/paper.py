@@ -23,6 +23,12 @@ class PaperPosition:
     min_adverse_price: float = 0.0
     be_moved: bool = False
     partial_taken: bool = False
+    leverage_recommended: float = 0.0
+    margin_mode: str = "isolated"
+    planned_entry_price: float = 0.0
+    planned_sl_price: float = 0.0
+    planned_tp_price: float = 0.0
+    planned_rr: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -47,6 +53,12 @@ class PaperPosition:
             min_adverse_price=float(raw.get("min_adverse_price", 0.0) or 0.0),
             be_moved=bool(raw.get("be_moved", False)),
             partial_taken=bool(raw.get("partial_taken", False)),
+            leverage_recommended=float(raw.get("leverage_recommended", 0.0) or 0.0),
+            margin_mode=str(raw.get("margin_mode", "isolated") or "isolated"),
+            planned_entry_price=float(raw.get("planned_entry_price", 0.0) or 0.0),
+            planned_sl_price=float(raw.get("planned_sl_price", 0.0) or 0.0),
+            planned_tp_price=float(raw.get("planned_tp_price", 0.0) or 0.0),
+            planned_rr=float(raw.get("planned_rr", 0.0) or 0.0),
         )
 
 
@@ -113,6 +125,9 @@ def open_paper_position(
         entry_ts=str(ts),
         last_ts=str(ts),
         bars_held=0,
+        planned_entry_price=entry,
+        planned_sl_price=float(sl_price),
+        planned_tp_price=float(tp_price),
     )
 
 

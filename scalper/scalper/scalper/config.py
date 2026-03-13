@@ -23,13 +23,18 @@ def _parse_level_overrides(raw: str) -> Dict[str, float]:
     except (json.JSONDecodeError, TypeError, ValueError):
         return {}
 
-WATCHLIST_MODE = _s.risk.watchlist_mode
-WATCHLIST = _s.risk.watchlist
+def _risk_attr(name: str, default: object) -> object:
+    """Safe helper for older RiskSettings schemas."""
+    return getattr(_s.risk, name, default)
 
-BYBIT_BASE_URL = _s.bybit.base_url
-REQUEST_SLEEP_MS = _s.bybit.request_sleep_ms
-EXECUTION_MODE = _s.bybit.execution_mode
-EXPLICIT_CONFIRM_EXECUTION = _s.bybit.explicit_confirm_execution
+
+WATCHLIST_MODE = _risk_attr("watchlist_mode", "static")
+WATCHLIST = _risk_attr("watchlist", [])
+
+BYBIT_BASE_URL = getattr(_s.bybit, "base_url", "https://api.bybit.com")
+REQUEST_SLEEP_MS = getattr(_s.bybit, "request_sleep_ms", 100)
+EXECUTION_MODE = getattr(_s.bybit, "execution_mode", "disabled")
+EXPLICIT_CONFIRM_EXECUTION = getattr(_s.bybit, "explicit_confirm_execution", True)
 
 TELEGRAM_BOT_TOKEN = _s.telegram.bot_token
 TELEGRAM_CHAT_ID = _s.telegram.chat_id
@@ -43,20 +48,25 @@ TELEGRAM_COMPACT = _s.telegram.compact
 TELEGRAM_EARLY_ENABLED = _s.telegram.early_enabled
 TELEGRAM_EARLY_MAX_PER_SYMBOL_PER_15M = _s.telegram.early_max_per_symbol_per_15m
 
-INTERVAL = _s.risk.interval
-LOOKBACK = _s.risk.lookback
-SCAN_SECONDS = _s.risk.scan_seconds
-SCAN_CYCLE_TIMEOUT_SECONDS = _s.risk.scan_cycle_timeout_seconds
-WATCHLIST_TOP_N = _s.risk.watchlist_top_n
-WATCHLIST_REFRESH_MINUTES = _s.risk.watchlist_refresh_minutes
-WATCHLIST_REFRESH_MIN = _s.risk.watchlist_refresh_min
-WATCHLIST_REFRESH_SECONDS = getattr(_s.risk, "watchlist_refresh_seconds", int(getattr(_s.risk, "watchlist_refresh_min", 15) * 60))WATCHLIST_BATCH_N = _s.risk.watchlist_batch_n
-WATCHLIST_ROTATE_MODE = _s.risk.watchlist_rotate_mode
-WATCHLIST_ROTATE_SEED = _s.risk.watchlist_rotate_seed
-ROTATION_STATE_FILE = _s.risk.rotation_state_file
-WATCHLIST_MIN_PRICE = _s.risk.watchlist_min_price
-WATCHLIST_MIN_TURNOVER_24H = _s.risk.watchlist_min_turnover_24h
-MIN_TURNOVER_USDT = _s.risk.min_turnover_usdt
+INTERVAL = _risk_attr("interval", 15)
+LOOKBACK = _risk_attr("lookback", 300)
+SCAN_SECONDS = _risk_attr("scan_seconds", 60)
+SCAN_CYCLE_TIMEOUT_SECONDS = _risk_attr("scan_cycle_timeout_seconds", 120)
+WATCHLIST_TOP_N = int(_risk_attr("watchlist_top_n", 40))
+WATCHLIST_REFRESH_MINUTES = int(_risk_attr("watchlist_refresh_minutes", 15))
+WATCHLIST_REFRESH_MIN = int(_risk_attr("watchlist_refresh_min", WATCHLIST_REFRESH_MINUTES))
+WATCHLIST_REFRESH_SECONDS = int(
+    getattr(_s.risk, "watchlist_refresh_seconds", WATCHLIST_REFRESH_MIN * 60)
+)
+WATCHLIST_BATCH_N = int(_risk_attr("watchlist_batch_n", WATCHLIST_TOP_N))
+WATCHLIST_ROTATE_MODE = str(_risk_attr("watchlist_rotate_mode", "none"))
+WATCHLIST_ROTATE_SEED = int(_risk_attr("watchlist_rotate_seed", 0))
+ROTATION_STATE_FILE = str(_risk_attr("rotation_state_file", "rotation_state.json"))
+WATCHLIST_MIN_PRICE = float(_risk_attr("watchlist_min_price", 0.0))
+WATCHLIST_MIN_TURNOVER_24H = float(
+    _risk_attr("watchlist_min_turnover_24h", _risk_attr("min_turnover_usdt", 0.0))
+)
+MIN_TURNOVER_USDT = float(_risk_attr("min_turnover_usdt", 0.0))
 WATCHLIST_EXCLUDE_PREFIXES = _s.risk.watchlist_exclude_prefixes
 WATCHLIST_EXCLUDE_SYMBOLS = _s.risk.watchlist_exclude_symbols
 WATCHLIST_EXCLUDE_REGEX = _s.risk.watchlist_exclude_regex

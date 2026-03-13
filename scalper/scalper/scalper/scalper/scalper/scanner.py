@@ -140,6 +140,14 @@ def _fingerprint_group_key(symbol: str, strategy: str, side: str) -> str:
     return f"{symbol}|{strategy}|{side}"
 
 
+def _apply_preview_gate(allowed: bool, gate_reason: str, preview: Dict[str, Any]) -> tuple[bool, str]:
+    if not allowed:
+        return (False, str(gate_reason or ""))
+    if not preview or not bool(preview.get("ok")):
+        return (False, str((preview or {}).get("reason") or "PREVIEW_BUILD_FAILED"))
+    return (True, str(gate_reason or ""))
+
+
 def _early_group_key(symbol: str, bar_ts_15m: str) -> str:
     return f"{symbol}|{bar_ts_15m}"
 
@@ -445,8 +453,8 @@ def run_test_telegram_formats(config_module) -> int:
 
 
 def run_reconcile(config_module, symbol: str) -> int:
-    from bybit import fetch_klines
-    from signals import build_reconcile_report
+    from scalper.bybit import fetch_klines
+    from scalper.signals import build_reconcile_report
 
     clean_symbol = str(symbol or "").strip().upper()
     if not clean_symbol:
@@ -484,7 +492,7 @@ def resolve_watchlist(config_module, symbols_override: Optional[list[str]] = Non
     """Resolve watchlist via watchlist.get_watchlist (static/dynamic/topn)."""
     if symbols_override:
         return (list(dict.fromkeys(symbols_override)), "cli")
-    from watchlist import get_watchlist
+    from scalper.watchlist import get_watchlist
 
     return get_watchlist(config_module, bybit_client=None, logger=logging.getLogger(__name__))
 
@@ -515,15 +523,16 @@ def run_scan_cycle(
     telegram_max_chars_verbose: int,
     paper_mode: bool = False,
 ) -> Dict[str, Any]:
-    from bybit import fetch_klines
-    from paper import PaperPosition, update_and_maybe_close
-    from paper_engine import try_open_position
+    from scalper.bybit import fetch_klines
+    from scalper.paper import PaperPosition, update_and_maybe_close
+    from scalper.paper_engine import try_open_position
     from scalper.models import TradeRecord
     from scalper.risk_engine_core import RiskEngine
     from scalper.paper_broker import PaperBroker
     from scalper.settings import get_settings
-    from signals import (
+    from scalper.signals import (
         evaluate_early_intents_from_5m,
+        evaluate_higher_tf_context,
         evaluate_symbol_intents,
     )
     from scalper.strategy_engine import StrategyEngine
@@ -543,13 +552,14 @@ def run_scan_cycle(
         insert_paper_trade,
         delete_paper_position,
     )
-    from telegram_format import (
+    from scalper.telegram_format import (
         format_early_alert,
         format_intent_allow,
         format_intent_block,
         format_paper_open,
         format_paper_close,
     )
+    from scalper.trade_preview import build_trade_preview
 
     run_context: Dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -791,12 +801,29 @@ def run_scan_cycle(
                     for nm in evaluated.get("near_miss_candidates", []) or []:
                         all_near_miss_candidates.append(dict(nm))
                 else:
+                    candles_1h = (run_context.get("candles_1h") or {}).get(symbol)
+                    if candles_1h is None and getattr(_config, "LOOKBACK_1H", 0):
+                        try:
+                            candles_1h = fetch_klines(
+                                symbol=symbol,
+                                interval="60",
+                                limit=int(getattr(_config, "LOOKBACK_1H", 100)),
+                            )
+                        except Exception:
+                            candles_1h = []
+                        run_context.setdefault("candles_1h", {})[symbol] = candles_1h or []
+                    higher_tf_context = (
+                        evaluate_higher_tf_context(symbol, candles_1h=candles_1h or [])
+                        if (candles_1h and len(candles_1h) >= 50)
+                        else None
+                    )
                     evaluated = evaluate_symbol_intents(
                         symbol=symbol,
                         candles=candles,
                         signal_debug=signal_debug,
                         early_min_conf=early_min_conf,
                         threshold_profile=active_profile,
+                        higher_tf_context=higher_tf_context,
                     )
                 symbol_context["market_snapshot"] = dict(evaluated.get("market_snapshot", {}) or {})
                 symbol_context["candidates_before"] = list(
@@ -821,6 +848,7 @@ def run_scan_cycle(
                                 signal_debug=True,
                                 early_min_conf=early_min_conf,
                                 threshold_profile=prof,
+                                higher_tf_context=higher_tf_context,
                             )
                         finals = list(ev_prof.get("final_intents", []) or [])
                         if finals:
@@ -1057,6 +1085,7 @@ def run_scan_cycle(
                             "timeframe": str(interval),
                             "candle_ts": bar_ts_used,
                             "ts": intent_ts,
+                            "confidence": float(intent_confidence) if intent_confidence is not None else 0.0,
                         },
                         snapshot=risk_snapshot,
                     )
@@ -1065,6 +1094,50 @@ def run_scan_cycle(
                     meta = dict(signal.get("meta") or {})
                     if "retest_level" not in meta and "failed_level" not in meta:
                         meta["retest_level"] = signal.get("level_ref")
+                    snap = symbol_context.get("market_snapshot", {}) or {}
+                    preview: Dict[str, Any] = {}
+                    execution_status = "not_opened"
+                    if allowed:
+                        preview = build_trade_preview(
+                            signal={
+                                **dict(signal or {}),
+                                "symbol": intent_symbol,
+                                "side": intent_side,
+                                "strategy": intent_strategy,
+                                "confidence": float(intent_confidence),
+                                "bar_ts_used": bar_ts_used,
+                            },
+                            market_snapshot=snap,
+                            candles=candles,
+                            mtf_snapshot=mtf_snap,
+                            risk_settings=settings_obj.risk,
+                            equity_usdt=(
+                                paper_broker.current_equity()
+                                if paper_broker is not None
+                                else float(getattr(risk_autopilot, "paper_position_usdt", 20.0) or 20.0)
+                            ),
+                            for_execution=True,
+                        )
+                        allowed, gate_reason = _apply_preview_gate(allowed, gate_reason, preview)
+                        if not allowed:
+                            logging.warning(
+                                "ALLOW downgraded to BLOCK %s %s %s reason=%s",
+                                intent_symbol,
+                                intent_strategy,
+                                intent_side,
+                                gate_reason,
+                            )
+                        else:
+                            logging.info(
+                                "PREVIEW built %s %s %s entry=%.8f sl=%.8f tp=%.8f atr_source=%s",
+                                intent_symbol,
+                                intent_strategy,
+                                intent_side,
+                                float(preview.get("entry", 0.0) or 0.0),
+                                float(preview.get("sl", 0.0) or 0.0),
+                                float(preview.get("tp", 0.0) or 0.0),
+                                str(preview.get("atr_source", "")),
+                            )
                     trade_intent = {
                         "id": str(signal.get("intent_id") or fp),
                         "ts": intent_ts,
@@ -1117,15 +1190,13 @@ def run_scan_cycle(
                     save_paper_state(latest_state)
                     if allowed:
                         has_any_allow = True
-                        snap = symbol_context.get("market_snapshot", {}) or {}
+                        opened_position = None
                         if paper_broker is not None:
-                            pos_dict, skip_reason = paper_broker.open_from_intent(
-                                intent=trade_intent,
-                                candle=(candles[-1] if candles else {}),
-                                strategy=intent_strategy,
-                                fallback_atr=float(snap.get("atr14", 0.0) or 0.0),
+                            pos_dict, skip_reason = paper_broker.open_from_preview(
+                                preview=preview,
                                 intent_id=str(signal.get("intent_id", "")),
                                 ts=str((candles[-1] if candles else {}).get("timestamp_utc", intent_ts)),
+                                strategy=intent_strategy,
                             )
                         else:
                             pos_dict, skip_reason = try_open_position(
@@ -1138,11 +1209,11 @@ def run_scan_cycle(
                                 sl_atr_mult=getattr(risk_autopilot, "paper_sl_atr", 1.0),
                                 tp_atr_mult=getattr(risk_autopilot, "paper_tp_atr", 1.5),
                                 intent_id=str(signal.get("intent_id", "")),
+                                preview=preview,
                             )
-                        opened_position = (
-                            PaperPosition.from_dict(pos_dict) if pos_dict else None
-                        )
                         if pos_dict:
+                            execution_status = "open"
+                            opened_position = PaperPosition.from_dict(pos_dict)
                             state = load_paper_state()
                             open_positions = list(
                                 state.get("open_positions", []) or []
@@ -1175,30 +1246,10 @@ def run_scan_cycle(
                                         "strategy": opened_position.strategy,
                                         "confidence": float(intent_confidence),
                                         "entry": opened_position.entry_price,
-                                        "sl": opened_position.sl_price,
-                                        "tp": opened_position.tp_price,
-                                        "sl_pct": (
-                                            abs(
-                                                opened_position.entry_price
-                                                - opened_position.sl_price
-                                            )
-                                            / max(
-                                                opened_position.entry_price,
-                                                1e-10,
-                                            )
-                                            * 100.0
-                                        ),
-                                        "tp_pct": (
-                                            abs(
-                                                opened_position.tp_price
-                                                - opened_position.entry_price
-                                            )
-                                            / max(
-                                                opened_position.entry_price,
-                                                1e-10,
-                                            )
-                                            * 100.0
-                                        ),
+                                        "sl": float(preview.get("sl", opened_position.sl_price)),
+                                        "tp": float(preview.get("tp", opened_position.tp_price)),
+                                        "sl_pct": float(preview.get("sl_pct", 0.0) or 0.0),
+                                        "tp_pct": float(preview.get("tp_pct", 0.0) or 0.0),
                                         "qty": opened_position.qty_est,
                                         "notional": opened_position.notional_usdt,
                                         "bar_ts_used": bar_ts_used,
@@ -1207,6 +1258,8 @@ def run_scan_cycle(
                                         ),
                                         "risk_reason": gate_reason,
                                         "note": intent_reason,
+                                        "preview_status": str(preview.get("reason", "")),
+                                        "execution_status": execution_status,
                                     },
                                     {
                                         "tf": str(interval),
@@ -1247,6 +1300,14 @@ def run_scan_cycle(
                                 )
                             else:
                                 _warn_missing_telegram_once()
+                        else:
+                            logging.warning(
+                                "Paper open skipped %s %s %s reason=%s",
+                                intent_symbol,
+                                intent_strategy,
+                                intent_side,
+                                str(skip_reason or "UNKNOWN"),
+                            )
                         if telegram_token and telegram_chat_id:
                             msg = format_intent_allow(
                                 {
@@ -1262,55 +1323,16 @@ def run_scan_cycle(
                                 {"reason": gate_reason},
                                 {
                                     "tf": str(interval),
-                                    "entry": (
-                                        opened_position.entry_price
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "sl": (
-                                        opened_position.sl_price
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "tp": (
-                                        opened_position.tp_price
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "sl_pct": (
-                                        abs(
-                                            opened_position.entry_price
-                                            - opened_position.sl_price
-                                        )
-                                        / max(
-                                            opened_position.entry_price, 1e-10
-                                        )
-                                        * 100.0
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "tp_pct": (
-                                        abs(
-                                            opened_position.tp_price
-                                            - opened_position.entry_price
-                                        )
-                                        / max(
-                                            opened_position.entry_price, 1e-10
-                                        )
-                                        * 100.0
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "qty": (
-                                        opened_position.qty_est
-                                        if opened_position
-                                        else None
-                                    ),
-                                    "notional": (
-                                        opened_position.notional_usdt
-                                        if opened_position
-                                        else None
-                                    ),
+                                    "entry": float(preview.get("entry", 0.0) or 0.0),
+                                    "sl": float(preview.get("sl", 0.0) or 0.0),
+                                    "tp": float(preview.get("tp", 0.0) or 0.0),
+                                    "sl_pct": float(preview.get("sl_pct", 0.0) or 0.0),
+                                    "tp_pct": float(preview.get("tp_pct", 0.0) or 0.0),
+                                    "qty": float(preview.get("qty", 0.0) or 0.0),
+                                    "notional": float(preview.get("notional", 0.0) or 0.0),
+                                    "preview_status": "ok",
+                                    "execution_status": execution_status,
+                                    "atr_source": str(preview.get("atr_source", "")),
                                     "bar_ts_used": bar_ts_used,
                                     "bias": str(signal.get("bias", "") or ""),
                                     "break_level": signal.get("break_level"),
@@ -1554,11 +1576,12 @@ def _emit_scan_summary_and_heartbeat(
     run_mode: str = "loop",
 ) -> None:
     """
-    Send scan summary or heartbeat per TELEGRAM_POLICY.
-    - events: no scan_summary, heartbeat when idle
-    - periodic: scan_summary at most once per SCAN_SUMMARY_MINUTES (only when NOTIFY_SCAN_SUMMARY and not DISABLE_SCAN_SUMMARY)
-    - off: no scan_summary, no heartbeat
-    Scan summary requires ALL: TELEGRAM_POLICY==periodic, NOTIFY_SCAN_SUMMARY, DISABLE_SCAN_SUMMARY==False.
+    Send scan summary / heartbeat as event notifications.
+    TELEGRAM_POLICY:
+      - off: disable all telegram
+      - signals: signal alerts only (no summary/heartbeat)
+      - events: event alerts only (summary/heartbeat/open/close/block)
+      - both: both signals and events
     Heartbeat: not sent on startup (requires at least 2 completed scans), includes run_mode, watchlist count, last_scan_ts.
     """
     from scalper.notifier import get_last_telegram_sent_at
@@ -1568,7 +1591,7 @@ def _emit_scan_summary_and_heartbeat(
     if not telegram_token or not telegram_chat_id:
         return
     policy = str(getattr(config_module, "TELEGRAM_POLICY", "events") or "events").strip().lower()
-    if policy not in {"events", "periodic", "off"}:
+    if policy not in {"off", "signals", "events", "both"}:
         policy = "events"
     notify_summary = bool(getattr(config_module, "NOTIFY_SCAN_SUMMARY", False))
     disable_summary = bool(getattr(config_module, "DISABLE_SCAN_SUMMARY", True))
@@ -1580,12 +1603,9 @@ def _emit_scan_summary_and_heartbeat(
     if policy == "off":
         return
 
-    may_send_scan_summary = (
-        policy == "periodic"
-        and notify_summary
-        and not disable_summary
-    )
-    if policy == "periodic" and not may_send_scan_summary:
+    events_enabled = policy in {"events", "both"}
+    may_send_scan_summary = events_enabled and notify_summary and not disable_summary
+    if events_enabled and not may_send_scan_summary:
         logging.info(
             "SCAN_SUMMARY_SKIP policy=%s notify=%s disabled=%s",
             policy,
@@ -1603,17 +1623,14 @@ def _emit_scan_summary_and_heartbeat(
                 text=summary,
             )
             _LAST_SCAN_SUMMARY_AT = now
-        if policy == "periodic":
-            return
-
     threshold_sec = heartbeat_min * 60
     may_send_heartbeat = (
-        policy in ("events", "periodic")
+        events_enabled
         and heartbeat_min > 0
         and idle_sec >= threshold_sec
         and _SCANS_COMPLETED >= 2
     )
-    if not may_send_heartbeat and policy in ("events", "periodic") and heartbeat_min > 0:
+    if not may_send_heartbeat and events_enabled and heartbeat_min > 0:
         logging.info(
             "HEARTBEAT_SKIP elapsed=%.0f threshold=%.0f scans=%d",
             idle_sec,
@@ -1662,9 +1679,9 @@ def emit_dashboard(
     max_open_positions: int,
     run_mode: str = "loop",
 ) -> None:
-    from dashboard import build_dashboard_report
+    from scalper.dashboard import build_dashboard_report
     from scalper.storage import load_paper_state
-    from telegram_format import format_dashboard_compact
+    from scalper.telegram_format import format_dashboard_compact
 
     ctx = dict(run_context)
     ctx["top_n"] = config_module.DASHBOARD_TOP_N
