@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# scalper-analytics-read
+# READ-ONLY: Runs analytics_report in summary mode.
+# No mutation of runtime or settings.
+set -euo pipefail
+SCALPER_ROOT="${SCALPER_ROOT:-/root/scalper}"
+cd "${SCALPER_ROOT}" 2>/dev/null || {
+  echo "[scalper-analytics-read] SCALPER_ROOT=${SCALPER_ROOT} not accessible"
+  exit 1
+}
+python -m scalper.analytics_report --recent-intents 5000 --recent-trades 2000 || {
+  echo "[scalper-analytics-read] analytics_report failed"
+  exit 1
+}
+

@@ -3,7 +3,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
-<<<<<<< HEAD
 from paper import PaperPosition, open_paper_position
 from scalper.trade_preview import build_trade_preview
 
@@ -122,18 +121,10 @@ def open_from_preview(
 
 
 def try_open_position(
-=======
-from scalper.paper_engine import *  # noqa: F401,F403
-from scalper.trade_preview import build_trade_preview
-
-
-def compute_entry_sl_tp_for_display(
->>>>>>> b1a8f4e7765cfa90c470121f7cfaad7339fce0ee
     trade_intent: Dict[str, Any],
     candles: List[Dict[str, Any]],
     snapshot: Dict[str, Any],
     *,
-<<<<<<< HEAD
     paper_position_usdt: float,
     sl_atr_mult: float,
     tp_atr_mult: float,
@@ -184,7 +175,13 @@ def compute_entry_sl_tp_for_display(
         intent_id=intent_id,
         ts=ts_open or str((candles[-1] if candles else {}).get("timestamp_utc", "")),
     )
-=======
+
+
+def compute_entry_sl_tp_for_display(
+    trade_intent: Dict[str, Any],
+    candles: List[Dict[str, Any]],
+    snapshot: Dict[str, Any],
+    *,
     sl_atr_mult: float = 1.0,
     tp_atr_mult: float = 1.5,
 ) -> Optional[Dict[str, float]]:
@@ -215,4 +212,3 @@ def compute_entry_sl_tp_for_display(
         "sl_pct": float(preview["sl_pct"]),
         "tp_pct": float(preview["tp_pct"]),
     }
->>>>>>> b1a8f4e7765cfa90c470121f7cfaad7339fce0ee

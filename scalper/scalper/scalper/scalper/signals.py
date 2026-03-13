@@ -68,6 +68,64 @@ def _market_snapshot(symbol: str, candles: List[Dict[str, float]]) -> Dict[str, 
     }
 
 
+def _rich_market_snapshot(symbol: str, candles: List[Dict[str, float]]) -> Dict[str, Any]:
+    """
+    Build an enriched market snapshot for dashboard:
+    - last_close
+    - ATR14 and ATR14 pct
+    - EMA200 and distance %
+    - 24-bar range low/high and position of close within the range
+    Falls back to the basic snapshot when data is insufficient.
+    """
+    snap = _market_snapshot(symbol, candles)
+    if not candles:
+        return snap
+    df = _build_frame(candles)
+    if df.empty:
+        return snap
+    latest = df.iloc[-1]
+    try:
+        close = float(latest["close"])
+    except Exception:
+        return snap
+    try:
+        atr_val = float(latest["atr14"])
+    except Exception:
+        atr_val = 0.0
+    try:
+        ema200 = float(latest["ema200"])
+    except Exception:
+        ema200 = 0.0
+
+    atr_pct = (atr_val / max(close, 1e-10) * 100.0) if (close > 0 and atr_val > 0) else None
+    ema_dist_pct = ((close - ema200) / max(close, 1e-10) * 100.0) if (close > 0 and ema200 > 0) else None
+
+    window = df.tail(24)
+    try:
+        range_low = float(window["low"].min())
+        range_high = float(window["high"].max())
+    except Exception:
+        range_low = range_high = 0.0
+    if range_high > range_low and close > 0:
+        range_position = (close - range_low) / max(range_high - range_low, 1e-10)
+    else:
+        range_position = None
+
+    snap.update(
+        {
+            "last_close": close,
+            "atr14": atr_val or None,
+            "atr14_pct": atr_pct,
+            "ema200": ema200 or None,
+            "ema_distance_pct": ema_dist_pct,
+            "range_low": range_low or None,
+            "range_high": range_high or None,
+            "range_position": range_position,
+        }
+    )
+    return snap
+
+
 def _build_frame(candles: List[Dict[str, float]]) -> pd.DataFrame:
     df = pd.DataFrame(candles)
     if df.empty:
@@ -152,7 +210,7 @@ def evaluate_symbol_intents(
             "rejections": [],
             "near_miss_candidates": [],
             "debug_why_none": {"reason": "not_enough_candles"},
-            "market_snapshot": _market_snapshot(symbol, candles),
+            "market_snapshot": _rich_market_snapshot(symbol, candles),
             "error": None,
         }
 
@@ -233,7 +291,7 @@ def evaluate_symbol_intents(
         "rejections": [],
         "near_miss_candidates": near_miss,
         "debug_why_none": debug,
-        "market_snapshot": _market_snapshot(symbol, candles),
+        "market_snapshot": _rich_market_snapshot(symbol, candles),
         "error": None,
     }
 

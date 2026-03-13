@@ -1,0 +1,34 @@
+{
+  "tag": "smoke_5d_warm",
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "days": 5,
+  "variant": {
+    "PF": 2.3018,
+    "maxDD": 2.79,
+    "winrate": 57.14285714285714,
+    "trades_per_day": 1.4,
+    "avgR": 0.4229,
+    "trades": 7,
+    "run_id": "bb39e314ffee"
+  },
+  "variant_params": {},
+  "baseline": {
+    "PF": 2.3018,
+    "maxDD": 2.79,
+    "winrate": 57.14285714285714,
+    "trades_per_day": 1.4,
+    "avgR": 0.4229,
+    "trades": 7,
+    "run_id": "bb39e314ffee"
+  },
+  "diff": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "trades_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0
+  }
+}
