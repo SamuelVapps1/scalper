@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
+from scalper.trade_preview import build_trade_preview
+
 
 @dataclass
 class PaperBroker:
@@ -31,61 +33,56 @@ class PaperBroker:
             return float(close_price) * (1.0 - slip)
         return float(close_price) * (1.0 + slip)
 
-    def open_from_intent(
+    def open_from_preview(
         self,
         *,
-        intent: Dict[str, Any],
-        candle: Dict[str, Any],
-        strategy: str,
-        fallback_atr: float,
+        preview: Dict[str, Any],
         intent_id: str,
         ts: str,
+        strategy: str,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        symbol = str(intent.get("symbol", "") or "").upper()
-        side = str(intent.get("side", "") or "").upper()
-        if not symbol or side not in {"LONG", "SHORT"}:
-            return (None, "invalid_intent")
-        close_price = float(candle.get("close", 0.0) or 0.0)
-        if close_price <= 0:
-            return (None, "invalid_price")
-        meta = intent.get("meta") if isinstance(intent.get("meta"), dict) else {}
-        sl_hint = meta.get("sl_hint")
-        entry = self._entry_price_with_slippage(close_price, side)
+        if not preview or not bool(preview.get("ok")):
+            return (None, str((preview or {}).get("reason") or "PREVIEW_BUILD_FAILED"))
+        if not bool(preview.get("executable")):
+            return (None, str(preview.get("reason") or "PREVIEW_NOT_EXECUTABLE"))
 
-        if isinstance(sl_hint, (int, float)):
-            sl_price = float(sl_hint)
-        else:
-            atr = max(0.0, float(fallback_atr))
-            sl_mult = max(0.1, float(getattr(self.risk_settings, "paper_sl_atr", 1.0) or 1.0))
-            sl_price = entry - (sl_mult * atr) if side == "LONG" else entry + (sl_mult * atr)
+        symbol = str(preview.get("symbol", "") or "").upper()
+        side = str(preview.get("side", "") or "").upper()
+        entry_preview = float(preview.get("entry", 0.0) or 0.0)
+        if not symbol or side not in {"LONG", "SHORT"} or entry_preview <= 0:
+            return (None, "INVALID_PREVIEW")
 
-        sl_distance = abs(entry - sl_price)
+        fill_entry = self._entry_price_with_slippage(entry_preview, side)
+        sl_price = float(preview.get("sl", 0.0) or 0.0)
+        tp_price = float(preview.get("tp", 0.0) or 0.0)
+        if sl_price <= 0 or tp_price <= 0:
+            return (None, "INVALID_PREVIEW_LEVELS")
+        if side == "LONG" and not (sl_price < fill_entry < tp_price):
+            return (None, "FILL_GEOMETRY_INVALID_LONG")
+        if side == "SHORT" and not (tp_price < fill_entry < sl_price):
+            return (None, "FILL_GEOMETRY_INVALID_SHORT")
+
+        sl_distance = abs(fill_entry - sl_price)
         if sl_distance <= 0:
-            return (None, "sl_distance_zero")
+            return (None, "SL_DISTANCE_ZERO")
 
         risk_pct = max(0.0, float(getattr(self.risk_settings, "risk_per_trade_pct", 0.15) or 0.15))
         risk_usdt = self.current_equity() * (risk_pct / 100.0)
         qty = risk_usdt / sl_distance if sl_distance > 0 else 0.0
         if qty <= 0:
-            return (None, "qty_zero")
-        notional_usdt = qty * entry
-
-        tp_r_mult = meta.get("tp_r_mult")
-        if isinstance(tp_r_mult, (int, float)):
-            tp_price = entry + (float(tp_r_mult) * sl_distance if side == "LONG" else -float(tp_r_mult) * sl_distance)
-        else:
-            tp_mult = max(0.1, float(getattr(self.risk_settings, "paper_tp_atr", 1.5) or 1.5))
-            tp_price = entry + (tp_mult * sl_distance if side == "LONG" else -tp_mult * sl_distance)
+            return (None, "QTY_ZERO")
+        notional_usdt = qty * fill_entry
 
         pos = {
             "intent_id": str(intent_id or ""),
             "symbol": symbol,
             "side": side,
             "strategy": str(strategy or ""),
-            "entry_price": float(entry),
+            "entry_price": float(fill_entry),
+            "preview_entry_price": float(entry_preview),
             "notional_usdt": float(notional_usdt),
             "qty_est": float(qty),
-            "atr_at_entry": float(max(0.0, fallback_atr)),
+            "atr_at_entry": float(preview.get("atr_used", 0.0) or 0.0),
             "sl_price": float(sl_price),
             "tp_price": float(tp_price),
             "entry_ts": str(ts or ""),
@@ -96,8 +93,40 @@ class PaperBroker:
             "partial_taken": False,
             "status": "OPEN",
             "fee_pct": self._fee_pct(),
+            "preview_reason": str(preview.get("reason", "")),
+            "atr_source": str(preview.get("atr_source", "")),
+            "bar_ts_used": str(preview.get("bar_ts_used", "")),
         }
         return (pos, None)
+
+    def open_from_intent(
+        self,
+        *,
+        intent: Dict[str, Any],
+        candle: Dict[str, Any],
+        strategy: str,
+        fallback_atr: float,
+        intent_id: str,
+        ts: str,
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        market_snapshot = {"close": float(candle.get("close", 0.0) or 0.0), "atr14": float(fallback_atr or 0.0)}
+        preview = build_trade_preview(
+            signal={
+                **dict(intent or {}),
+                "strategy": str(strategy or intent.get("strategy", intent.get("setup", ""))),
+            },
+            market_snapshot=market_snapshot,
+            candles=[dict(candle or {})] if candle else [],
+            risk_settings=self.risk_settings,
+            equity_usdt=self.current_equity(),
+            for_execution=True,
+        )
+        return self.open_from_preview(
+            preview=preview,
+            intent_id=intent_id,
+            ts=ts,
+            strategy=str(strategy or intent.get("strategy", intent.get("setup", ""))),
+        )
 
     def persist_open(self, position: Dict[str, Any]) -> None:
         self.store.upsert_paper_position(position)

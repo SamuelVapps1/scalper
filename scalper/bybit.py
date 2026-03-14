@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from config import BYBIT_BASE_URL, REQUEST_SLEEP_MS
+from scalper.config import BYBIT_BASE_URL, REQUEST_SLEEP_MS
 
 _SESSION = requests.Session()
 _LAST_REQUEST_TS = 0.0

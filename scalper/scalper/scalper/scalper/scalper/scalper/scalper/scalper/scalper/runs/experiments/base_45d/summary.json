@@ -1,0 +1,35 @@
+{
+  "tag": "base_45d",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "days": 45,
+  "variant": {
+    "PF": 1.9497,
+    "maxDD": 38.7,
+    "winrate": 66.04477611940298,
+    "trades_per_day": 5.96,
+    "avgR": 0.4722,
+    "trades": 268,
+    "run_id": "8d5cc8a3e7ae"
+  },
+  "variant_params": {},
+  "baseline": {
+    "PF": 1.9497,
+    "maxDD": 38.7,
+    "winrate": 66.04477611940298,
+    "trades_per_day": 5.96,
+    "avgR": 0.4722,
+    "trades": 268,
+    "run_id": "8d5cc8a3e7ae"
+  },
+  "diff": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "trades_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0
+  }
+}

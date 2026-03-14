@@ -1,0 +1,15 @@
+# Scalper Audit Export - Cron Example
+# Export read-only audit pack every 2 hours.
+# Install: crontab -e and add one of the lines below.
+#
+# Every 2 hours (at :00 and :30 of even hours, adjust as needed):
+# 0 */2 * * * SCALPER_ROOT=/root/scalper /root/scalper/export_readonly_audit.sh >> /root/scalper/audit_export.log 2>&1
+#
+# Simpler: every 2 hours on the hour:
+# 0 */2 * * * /root/scalper/export_readonly_audit.sh >> /root/scalper/audit_export.log 2>&1
+#
+# Or use the wrapper (after installing to /usr/local/bin):
+# 0 */2 * * * scalper-export-audit >> /root/scalper/audit_export.log 2>&1
+#
+# Ensure SCALPER_ROOT is set if scalper is not at /root/scalper:
+# 0 */2 * * * SCALPER_ROOT=/root/scalper /usr/local/bin/scalper-export-audit >> /root/scalper/audit_export.log 2>&1

@@ -2145,7 +2145,11 @@ def run_with_args(args: argparse.Namespace, config_module=None) -> int:
 
     risk_autopilot = build_risk_autopilot(config)
 
-    logging.info("Starting Bybit Signal Bot in DRY RUN mode (no trading).")
+    _exec_mode = str(getattr(config, "EXECUTION_MODE", "disabled") or "disabled").strip().lower()
+    if _exec_mode == "live":
+        logging.info("Starting Bybit Signal Bot in live execution mode.")
+    else:
+        logging.info("Starting Bybit Signal Bot in DRY RUN mode (no trading).")
     logging.info(
         "TELEGRAM_POLICY=%s NOTIFY_SCAN_SUMMARY=%s DISABLE_SCAN_SUMMARY=%s HEARTBEAT_MINUTES=%d",
         str(getattr(config, "TELEGRAM_POLICY", "events")),
