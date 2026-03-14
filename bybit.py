@@ -1,13 +1,27 @@
 from __future__ import annotations
 
-import random
-import re
-import time
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+"""
+Root-level compatibility shim. Re-exports from canonical scalper.bybit
+so that `import bybit` and `from bybit import ...` work without circular import.
+"""
 
-import requests
+from scalper.bybit import (
+    _to_bybit_interval,
+    fetch_klines,
+    get_last_topn_excluded_counts,
+    get_last_topn_excluded_examples,
+    get_top_linear_usdt_symbols,
+)
 
+<<<<<<< HEAD
+__all__ = [
+    "_to_bybit_interval",
+    "fetch_klines",
+    "get_last_topn_excluded_counts",
+    "get_last_topn_excluded_examples",
+    "get_top_linear_usdt_symbols",
+]
+=======
 from config import BYBIT_BASE_URL, REQUEST_SLEEP_MS
 
 _SESSION = requests.Session()
@@ -261,3 +275,4 @@ def get_last_topn_excluded_examples() -> List[str]:
 
 def get_last_topn_excluded_counts() -> Dict[str, int]:
     return dict(_LAST_TOPN_EXCLUDED_COUNTS)
+>>>>>>> 5c88ebe191d17d100cc2af5eca2a984c569eb91e

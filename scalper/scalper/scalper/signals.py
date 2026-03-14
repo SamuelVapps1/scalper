@@ -113,11 +113,16 @@ def _rich_market_snapshot(symbol: str, candles: List[Dict[str, float]]) -> Dict[
 
     snap.update(
         {
+            # canonical price aliases
             "last_close": close,
+            "px": close,
+            # volatility
             "atr14": atr_val or None,
             "atr14_pct": atr_pct,
+            # trend anchor
             "ema200": ema200 or None,
             "ema_distance_pct": ema_dist_pct,
+            # 24-bar range context
             "range_low": range_low or None,
             "range_high": range_high or None,
             "range_position": range_position,

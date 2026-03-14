@@ -1,0 +1,35 @@
+{
+  "tag": "smoke_3d_warm",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "days": 3,
+  "variant": {
+    "PF": 0.0,
+    "maxDD": 0.46,
+    "winrate": 0.0,
+    "trades_per_day": 0.33,
+    "avgR": -0.1807,
+    "trades": 1,
+    "run_id": "28527adb25cc"
+  },
+  "variant_params": {},
+  "baseline": {
+    "PF": 0.0,
+    "maxDD": 0.46,
+    "winrate": 0.0,
+    "trades_per_day": 0.33,
+    "avgR": -0.1807,
+    "trades": 1,
+    "run_id": "28527adb25cc"
+  },
+  "diff": {
+    "PF": 0.0,
+    "maxDD": 0.0,
+    "winrate": 0.0,
+    "trades_per_day": 0.0,
+    "avgR": 0.0,
+    "trades": 0
+  }
+}

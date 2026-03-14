@@ -21,3 +21,6 @@ timestamp_utc,symbol,setup,direction,close,reason,confidence,entry,sl,tp
 ,AAVEUSDT,RANGE_BREAKOUT_RETEST_GO,LONG,,Breakout above previous high with momentum,0.68,,,
 ,AVAXUSDT,RANGE_BREAKOUT_RETEST_GO,LONG,,Breakout above previous high with momentum,0.68,,,
 ,ENAUSDT,TREND_PULLBACK_EMA20,LONG,,Trend continuation: EMA stack + MACD + RSI,0.62,,,
+,XPLUSDT,TREND_PULLBACK_EMA20,LONG,,Trend continuation: EMA stack + MACD + RSI,0.62,,,
+,PUMPFUNUSDT,TREND_PULLBACK_EMA20,LONG,,Trend continuation: EMA stack + MACD + RSI,0.62,,,
+,PIXELUSDT,TREND_PULLBACK_EMA20,LONG,,Trend continuation: EMA stack + MACD + RSI,0.62,,,
