@@ -339,6 +339,13 @@ def get_recent_risk_events(limit: int = 50) -> List[Dict[str, Any]]:
         return []
 
 
+def store_risk_event(event: Dict[str, Any]) -> None:
+    try:
+        sqlite_store.store_risk_event(event)
+    except Exception:
+        pass
+
+
 def get_block_stats_last_24h() -> List[Dict[str, Any]]:
     try:
         return sqlite_store.get_block_stats_last_24h()
