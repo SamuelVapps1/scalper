@@ -5,7 +5,8 @@ Thin re-export layer: normal imports only, no dynamic loading.
 from __future__ import annotations
 
 import json
-from typing import Dict
+from typing import Dict, List
+import os
 
 from scalper.settings import _ENV_BOOTSTRAP_STATE, debug_env, debug_risk_config, get_settings
 
@@ -28,8 +29,29 @@ def _risk_attr(name: str, default: object) -> object:
     return getattr(_s.risk, name, default)
 
 
+def _env_watchlist() -> List[str]:
+    raw = os.getenv("WATCHLIST", "") or ""
+    parts = [p.strip().upper() for p in raw.split(",") if p.strip()]
+    # Deduplicate while preserving order
+    seen = set()
+    out: List[str] = []
+    for sym in parts:
+        if sym not in seen:
+            seen.add(sym)
+            out.append(sym)
+    return out
+
+
 WATCHLIST_MODE = _risk_attr("watchlist_mode", "static")
-WATCHLIST = _risk_attr("watchlist", [])
+_watchlist_from_settings = _risk_attr("watchlist", []) or []
+if isinstance(_watchlist_from_settings, str):
+    # Older schemas may expose watchlist as CSV string.
+    WATCHLIST = [s.strip().upper() for s in _watchlist_from_settings.split(",") if s.strip()]
+else:
+    WATCHLIST = list(_watchlist_from_settings)
+if not WATCHLIST:
+    # Compatibility fallback: hydrate from raw WATCHLIST env when settings leave it empty.
+    WATCHLIST = _env_watchlist()
 
 BYBIT_BASE_URL = getattr(_s.bybit, "base_url", "https://api.bybit.com")
 REQUEST_SLEEP_MS = getattr(_s.bybit, "request_sleep_ms", 100)

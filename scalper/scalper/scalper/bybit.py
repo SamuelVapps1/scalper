@@ -89,13 +89,64 @@ def _do_json_request(url: str, params: Dict[str, Any], timeout: int = 20) -> Dic
     return _request_json_with_retry(path=path, params=params, timeout=timeout)
 
 
-def fetch_klines(symbol: str, interval: str, limit: int) -> List[Dict[str, float]]:
+def _to_bybit_interval(tf: Any) -> str:
+    """
+    Minimal, backward-compatible TF -> Bybit v5 interval adapter.
+    Accepts integers (minutes) or strings like '5', '5m', '15', '15m', '1h', '1d'.
+    """
+    s = str(tf).strip().lower()
+    if not s:
+        return "5"
+    # Strip trailing m/h/d/w if present
+    unit = s[-1]
+    if unit in {"m", "h", "d", "w"}:
+        core = s[:-1]
+    else:
+        core = s
+    try:
+        val = int(core)
+    except ValueError:
+        # Fall back to common textual aliases
+        if s in {"d", "1d", "day"}:
+            return "D"
+        if s in {"w", "1w", "week"}:
+            return "W"
+        if s in {"m", "1m", "month"}:
+            return "M"
+        return "5"
+
+    # Minutes-based mapping
+    mapping = {
+        1: "1",
+        3: "3",
+        5: "5",
+        15: "15",
+        30: "30",
+        60: "60",
+        120: "120",
+        240: "240",
+        360: "360",
+        720: "720",
+        1440: "D",
+        10080: "W",
+        43200: "M",
+    }
+    return mapping.get(val, str(val))
+
+
+def fetch_klines(
+    symbol: str,
+    interval: str,
+    limit: int,
+    start_ms: Optional[int] = None,
+    end_ms: Optional[int] = None,
+) -> List[Dict[str, float]]:
     payload = _request_json_with_retry(
         path="/v5/market/kline",
         params={
             "category": "linear",
             "symbol": str(symbol).upper(),
-            "interval": str(interval),
+            "interval": _to_bybit_interval(interval),
             "limit": str(max(1, min(1000, int(limit)))),
         },
         timeout=15,

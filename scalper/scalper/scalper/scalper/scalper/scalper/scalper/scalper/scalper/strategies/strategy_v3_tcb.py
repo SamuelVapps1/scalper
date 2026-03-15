@@ -114,6 +114,10 @@ def v3_tcb_evaluate(
     body_atr_min = float(params.get("BODY_ATR_15M", 0.25))
     trend_sep_atr_1h = float(params.get("TREND_SEP_ATR_1H", 0.8))
     use_5m_confirm = bool(params.get("USE_5M_CONFIRM", True))
+    atr_regime_min_pctl = int(params.get("ATR_REGIME_MIN_PCTL", 0))
+    breakout_buffer_atr = float(params.get("BREAKOUT_BUFFER_ATR", 0.0))
+    slope_min_4h = float(params.get("SLOPE_MIN_4H", 0.0))
+    body_max_atr = float(params.get("BODY_MAX_ATR", 0.0))
 
     snap_4h = _resolve_tf(snapshot_symbol, "4h")
     if not snap_4h:
@@ -137,6 +141,14 @@ def v3_tcb_evaluate(
         })
     slope10 = float(slope10)
 
+    if slope_min_4h > 0 and abs(slope10) < slope_min_4h:
+        return _ret({
+            "ok": False,
+            "side": None,
+            "breakout_level": None,
+            "reason": "v3_slope_min_fail",
+            "debug": {**debug, "slope10": slope10, "slope_min_4h": slope_min_4h},
+        })
     if close_4h > ema200_4h and slope10 > 0:
         bias = "LONG"
     elif close_4h < ema200_4h and slope10 < 0:
@@ -269,6 +281,44 @@ def v3_tcb_evaluate(
             "reason": "v3_body_too_small",
             "debug": {**debug, "bias": bias, "body": body, "body_min": body_min},
         })
+    if body_max_atr > 0 and body > body_max_atr * atr15m:
+        return _ret({
+            "ok": False,
+            "side": None,
+            "breakout_level": None,
+            "reason": "v3_body_exhaustion",
+            "debug": {**debug, "bias": bias, "body": body, "body_max_atr": body_max_atr},
+        })
+
+    if breakout_buffer_atr > 0:
+        buffer_dist = breakout_buffer_atr * atr15m
+        if bias == "LONG":
+            broken = close_15m > donch_high + buffer_dist
+        else:
+            broken = close_15m < donch_low - buffer_dist
+        if not broken:
+            return _ret({
+                "ok": False,
+                "side": None,
+                "breakout_level": None,
+                "reason": "v3_buffer_not_cleared",
+                "debug": {**debug, "bias": bias, "close_15m": close_15m, "buffer_dist": buffer_dist},
+            })
+
+    if atr_regime_min_pctl > 0 and atr_list:
+        atr_vals = [a for a in atr_list[: i15 + 1] if a is not None]
+        if len(atr_vals) >= 20:
+            sorted_atr = sorted(atr_vals)
+            pctl_idx = max(0, int(len(sorted_atr) * atr_regime_min_pctl / 100.0) - 1)
+            atr_threshold = sorted_atr[pctl_idx] if pctl_idx < len(sorted_atr) else sorted_atr[0]
+            if atr15m < atr_threshold:
+                return _ret({
+                    "ok": False,
+                    "side": None,
+                    "breakout_level": None,
+                    "reason": "v3_atr_regime_low",
+                    "debug": {**debug, "bias": bias, "atr15m": atr15m, "atr_threshold": atr_threshold},
+                })
 
     if use_5m_confirm:
         if map15_to_5 is not None and close5 is not None:

@@ -75,6 +75,7 @@ LOOKBACK = _risk_attr("lookback", 300)
 SCAN_SECONDS = _risk_attr("scan_seconds", 60)
 SCAN_CYCLE_TIMEOUT_SECONDS = _risk_attr("scan_cycle_timeout_seconds", 120)
 WATCHLIST_TOP_N = int(_risk_attr("watchlist_top_n", 40))
+WATCHLIST_UNIVERSE_N = int(_risk_attr("watchlist_universe_n", 200))
 WATCHLIST_REFRESH_MINUTES = int(_risk_attr("watchlist_refresh_minutes", 15))
 WATCHLIST_REFRESH_MIN = int(_risk_attr("watchlist_refresh_min", WATCHLIST_REFRESH_MINUTES))
 WATCHLIST_REFRESH_SECONDS = int(

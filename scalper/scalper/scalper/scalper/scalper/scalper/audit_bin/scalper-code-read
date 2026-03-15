@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# scalper-code-read
+# READ-ONLY: Shows recent git summary and diff for scalper codebase.
+# No git write operations, no mutation.
+set -euo pipefail
+SCALPER_ROOT="${SCALPER_ROOT:-/root/scalper}"
+cd "${SCALPER_ROOT}" 2>/dev/null || {
+  echo "[scalper-code-read] SCALPER_ROOT=${SCALPER_ROOT} not accessible"
+  exit 1
+}
+echo "=== git status --short ==="
+git status --short || echo "[scalper-code-read] git status failed"
+echo
+echo "=== recent commits (git log -5 --oneline) ==="
+git log -5 --oneline || echo "[scalper-code-read] git log failed"
+echo
+echo "=== diff (git diff --stat) ==="
+git diff --stat || echo "[scalper-code-read] git diff failed"
+

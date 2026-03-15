@@ -89,77 +89,78 @@ def _do_json_request(url: str, params: Dict[str, Any], timeout: int = 20) -> Dic
     return _request_json_with_retry(path=path, params=params, timeout=timeout)
 
 
-def _to_bybit_interval(tf: Any) -> str:
-    """
-    Minimal, backward-compatible TF -> Bybit v5 interval adapter.
-    Accepts integers (minutes) or strings like '5', '5m', '15', '15m', '1h', '1d'.
-    """
+def _to_bybit_interval(tf) -> str:
     s = str(tf).strip().lower()
-    if not s:
-        return "5"
-    # Strip trailing m/h/d/w if present
-    unit = s[-1]
-    if unit in {"m", "h", "d", "w"}:
-        core = s[:-1]
-    else:
-        core = s
-    try:
-        val = int(core)
-    except ValueError:
-        # Fall back to common textual aliases
-        if s in {"d", "1d", "day"}:
-            return "D"
-        if s in {"w", "1w", "week"}:
-            return "W"
-        if s in {"m", "1m", "month"}:
-            return "M"
-        return "5"
 
-    # Minutes-based mapping
-    mapping = {
-        1: "1",
-        3: "3",
-        5: "5",
-        15: "15",
-        30: "30",
-        60: "60",
-        120: "120",
-        240: "240",
-        360: "360",
-        720: "720",
-        1440: "D",
-        10080: "W",
-        43200: "M",
+    alias_map = {
+        "1": "1",
+        "3": "3",
+        "5": "5",
+        "15": "15",
+        "30": "30",
+        "60": "60",
+        "120": "120",
+        "240": "240",
+        "360": "360",
+        "720": "720",
+        "d": "D",
+        "1d": "D",
+        "w": "W",
+        "1w": "W",
+        "m": "M",
+        "1m": "M",
+        "1mth": "M",
+        "month": "M",
     }
-    return mapping.get(val, str(val))
+
+    if s.endswith("m") and s[:-1].isdigit():
+        s = s[:-1]
+
+    if s in alias_map:
+        return alias_map[s]
+
+    try:
+        n = int(float(s))
+    except Exception as exc:
+        raise ValueError(f"Unsupported timeframe: {tf}") from exc
+
+    if n in (1, 3, 5, 15, 30, 60, 120, 240, 360, 720):
+        return str(n)
+
+    raise ValueError(f"Unsupported timeframe: {tf}")
 
 
-def fetch_klines(
-    symbol: str,
-    interval: str,
-    limit: int,
-    start_ms: Optional[int] = None,
-    end_ms: Optional[int] = None,
-) -> List[Dict[str, float]]:
+def fetch_klines(symbol: str, interval: str, limit: int = 1000, start_ms=None, end_ms=None) -> List[Dict[str, float]]:
+    params: Dict[str, Any] = {
+        "category": "linear",
+        "symbol": str(symbol).upper(),
+        "interval": str(interval),
+        "limit": str(max(1, min(1000, int(limit)))),
+    }
+
+    if start_ms is not None:
+        params["start"] = int(start_ms)
+
+    if end_ms is not None:
+        params["end"] = int(end_ms)
+
     payload = _request_json_with_retry(
         path="/v5/market/kline",
-        params={
-            "category": "linear",
-            "symbol": str(symbol).upper(),
-            "interval": _to_bybit_interval(interval),
-            "limit": str(max(1, min(1000, int(limit)))),
-        },
+        params=params,
         timeout=15,
     )
     rows = payload.get("result", {}).get("list", []) or []
     ordered = list(reversed(rows))
+
     candles: List[Dict[str, float]] = []
     for item in ordered:
         ts_ms = int(item[0])
         candles.append(
             {
                 "timestamp": ts_ms,
-                "timestamp_utc": datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).isoformat(),
+                "timestamp_utc": datetime.fromtimestamp(
+                    ts_ms / 1000.0, tz=timezone.utc
+                ).isoformat(),
                 "open": float(item[1]),
                 "high": float(item[2]),
                 "low": float(item[3]),
